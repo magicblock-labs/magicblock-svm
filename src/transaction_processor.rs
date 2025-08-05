@@ -1,3 +1,4 @@
+use crate::account_loader::LoadedTransactionAccount;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::{field_qualifiers, qualifiers};
 use {
@@ -68,7 +69,6 @@ use {
         sync::Weak,
     },
 };
-use crate::account_loader::LoadedTransactionAccount;
 
 /// A list of log messages emitted during a transaction
 pub type TransactionLogMessages = Vec<String>;
@@ -1201,6 +1201,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn writable_sysvar_cache(&self) -> &RwLock<SysvarCache> {
         &self.sysvar_cache
+    }
+
+    pub fn set_slot(&mut self, slot: Slot) {
+        self.slot = slot
     }
 }
 
