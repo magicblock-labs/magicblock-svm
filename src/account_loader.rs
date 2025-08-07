@@ -118,12 +118,19 @@ pub struct FeesOnlyTransaction {
     pub fee_details: FeeDetails,
 }
 
+#[derive(Default)]
+pub struct AccountsBalances {
+    pub pre: Vec<u64>,
+    pub post: Vec<u64>,
+}
+
 #[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
 pub(crate) struct AccountLoader<'a, CB: TransactionProcessingCallback> {
     account_cache: AHashMap<Pubkey, AccountSharedData>,
     callbacks: &'a CB,
     pub(crate) feature_set: Arc<FeatureSet>,
 }
+
 impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
     pub(crate) fn new_with_account_cache_capacity(
         account_overrides: Option<&'a AccountOverrides>,

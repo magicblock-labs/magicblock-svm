@@ -1,4 +1,4 @@
-use crate::account_loader::LoadedTransactionAccount;
+use crate::account_loader::{AccountsBalances, LoadedTransactionAccount};
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::{field_qualifiers, qualifiers};
 use {
@@ -84,6 +84,8 @@ pub struct LoadAndExecuteSanitizedTransactionsOutput {
     /// could not be processed. Note processed transactions can still have a
     /// failure result meaning that the transaction will be rolled back.
     pub processing_results: Vec<TransactionProcessingResult>,
+    /// A collection of observed balances before and after transaction execution
+    pub balances: AccountsBalances,
 }
 
 /// Configuration of the recording capabilities for transaction execution
@@ -358,6 +360,11 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             program_accounts_map
         });
 
+        // Optimization, as we need to record account balances before
+        // and after transaction, we do it write during the load->execute
+        // stage, as we already have an access to all of the accounts
+        let mut balances = AccountsBalances::default();
+
         let (mut program_cache_for_tx_batch, program_cache_us) = measure_us!({
             let program_cache_for_tx_batch = self.replenish_program_cache(
                 callbacks,
@@ -374,6 +381,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     processing_results: (0..sanitized_txs.len())
                         .map(|_| Err(TransactionError::ProgramCacheHitMaxLimit))
                         .collect(),
+                    balances,
                 };
             }
 
@@ -446,6 +454,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     }
                 }
                 TransactionLoadResult::Loaded(loaded_transaction) => {
+                    // observe all the account balances before executing the transaction
+                    balances
+                        .pre
+                        .extend(loaded_transaction.accounts.iter().map(|a| a.1.lamports()));
+                    // for the fee payer, which always comes frist, we need to add the
+                    // fee back, as it was deducted during the fee payer validation
+                    if let Some(fee_payer) = balances.pre.get_mut(0) {
+                        *fee_payer += loaded_transaction.fee_details.total_fee();
+                    }
                     let executed_tx = self.execute_loaded_transaction(
                         callbacks,
                         tx,
@@ -455,6 +472,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         &mut program_cache_for_tx_batch,
                         environment,
                         config,
+                    );
+                    // observe all the account balances after executing the transaction
+                    balances.post.extend(
+                        executed_tx
+                            .loaded_transaction
+                            .accounts
+                            .iter()
+                            .map(|a| a.1.lamports()),
                     );
 
                     // Update loaded accounts cache with account states which might have changed.
@@ -508,6 +533,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             error_metrics,
             execute_timings,
             processing_results,
+            balances,
         }
     }
 
