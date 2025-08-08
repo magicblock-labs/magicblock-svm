@@ -118,9 +118,12 @@ pub struct FeesOnlyTransaction {
     pub fee_details: FeeDetails,
 }
 
+/// Two lists of accounts' balances before and after the transaction
 #[derive(Default)]
 pub struct AccountsBalances {
+    /// List of balances before the transaction
     pub pre: Vec<u64>,
+    /// List of balances after the transaction
     pub post: Vec<u64>,
 }
 
