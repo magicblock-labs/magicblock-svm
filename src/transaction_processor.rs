@@ -170,7 +170,7 @@ impl Default for TransactionProcessingEnvironment<'_> {
 )]
 pub struct TransactionBatchProcessor<FG: ForkGraph> {
     /// Bank slot (i.e. block)
-    slot: Slot,
+    pub slot: Slot,
 
     /// Bank epoch
     epoch: Epoch,
@@ -319,7 +319,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             .map(|cache| cache.get_environments_for_epoch(epoch))
     }
 
-    pub fn sysvar_cache(&self) -> RwLockReadGuard<SysvarCache> {
+    pub fn sysvar_cache(&self) -> RwLockReadGuard<'_, SysvarCache> {
         self.sysvar_cache.read().unwrap()
     }
 
@@ -1228,10 +1228,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn writable_sysvar_cache(&self) -> &RwLock<SysvarCache> {
         &self.sysvar_cache
-    }
-
-    pub fn set_slot(&mut self, slot: Slot) {
-        self.slot = slot
     }
 }
 
