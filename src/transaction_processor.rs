@@ -362,7 +362,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         });
 
         // Optimization, as we need to record account balances before
-        // and after transaction, we do it write during the load->execute
+        // and after transaction, we do it during the load->execute
         // stage, as we already have an access to all of the accounts
         let mut balances = AccountsBalances::default();
 
