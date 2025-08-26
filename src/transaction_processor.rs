@@ -1,4 +1,3 @@
-use crate::account_loader::LoadedTransactionAccount;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::{field_qualifiers, qualifiers};
 use {
@@ -69,6 +68,8 @@ use {
         sync::Weak,
     },
 };
+use crate::account_loader::LoadedTransactionAccount;
+use ephemeral_rollups_sdk::pda::ephemeral_balance_pda_from_payer;
 
 /// A list of log messages emitted during a transaction
 pub type TransactionLogMessages = Vec<String>;
@@ -554,7 +555,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
     // Loads transaction fee payer, collects rent if necessary, then calculates
     // transaction fees, and deducts them from the fee payer balance. If the
-    // account is not found or has insufficient funds, an error is returned.
+    // account is not found (and fee_lamports_per_signature > 0) or has insufficient funds, an error is returned.
     fn validate_transaction_fee_payer<CB: TransactionProcessingCallback>(
         account_loader: &mut AccountLoader<CB>,
         message: &impl SVMMessage,
@@ -578,14 +579,28 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             Some(account) => account,
             None => {
                 if fee_lamports_per_signature > 0 {
-                    error_counters.account_not_found += 1;
-                    return Err(TransactionError::AccountNotFound);
-                }
-
-                LoadedTransactionAccount {
-                    account: AccountSharedData::default(),
-                    loaded_size: 0,
-                    rent_collected: 0,
+                    println!("There are fees to pay but the fee payer account is not found. Trying escrow...");
+                    let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address, 0);
+                    match account_loader.load_account(&escrow_address, true) {
+                        Some(mut escrow_account) => {
+                            println!("Using escrow account as fee payer: {}", escrow_address);
+                            println!("Escrow lamports: {}", escrow_account.account.lamports());
+                            // Return escrow account instead of error
+                            escrow_account
+                        },
+                        None => {
+                            error_counters.account_not_found += 1;
+                            println!("Escrow account also not found.");
+                            return Err(TransactionError::AccountNotFound);
+                        }
+                    }
+                } else {
+                    // No fees, so return a default account
+                    LoadedTransactionAccount {
+                        account: AccountSharedData::default(),
+                        loaded_size: 0,
+                        rent_collected: 0,
+                    }
                 }
             }
         };
