@@ -1,3 +1,5 @@
+use crate::account_loader::LoadedTransactionAccount;
+use crate::escrow::ephemeral_balance_pda_from_payer;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::{field_qualifiers, qualifiers};
 use {
@@ -68,8 +70,6 @@ use {
         sync::Weak,
     },
 };
-use crate::account_loader::LoadedTransactionAccount;
-use crate::escrow::ephemeral_balance_pda_from_payer;
 
 /// A list of log messages emitted during a transaction
 pub type TransactionLogMessages = Vec<String>;
@@ -579,20 +579,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             Some(account) => account,
             None => {
                 if fee_lamports_per_signature > 0 {
-                    println!("There are fees to pay but the fee payer account is not found. Trying escrow...");
-                    println!("Feepayer: {}", fee_payer_address);
+                    // Try to charge the escrow if it exists
                     let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
                     match account_loader.load_account(&escrow_address, true) {
                         Some(escrow_account) => {
                             fee_payer_address = escrow_address;
-                            println!("Using escrow account as fee payer: {}", escrow_address);
-                            println!("Escrow lamports: {}", escrow_account.account.lamports());
-                            println!("Fee lamports per signature: {}", fee_lamports_per_signature);
                             escrow_account
-                        },
+                        }
                         None => {
                             error_counters.account_not_found += 1;
-                            println!("Escrow account also not found.");
                             return Err(TransactionError::AccountNotFound);
                         }
                     }
@@ -2679,5 +2674,4 @@ mod tests {
             &[(fee_payer_address, vec![(Some(fee_payer_account), true)])],
         );
     }
-
 }

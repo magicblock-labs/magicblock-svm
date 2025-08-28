@@ -3,6 +3,7 @@
 
 pub mod account_loader;
 pub mod account_overrides;
+pub mod escrow;
 pub mod message_processor;
 pub mod nonce_info;
 pub mod program_loader;
@@ -15,7 +16,6 @@ pub mod transaction_execution_result;
 pub mod transaction_processing_callback;
 pub mod transaction_processing_result;
 pub mod transaction_processor;
-pub mod escrow;
 
 #[cfg_attr(feature = "frozen-abi", macro_use)]
 #[cfg(feature = "frozen-abi")]

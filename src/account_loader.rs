@@ -204,12 +204,12 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
         }
     }
 
-    pub(crate) fn update_accounts_for_failed_tx(
-        &mut self,
-        rollback_accounts: &RollbackAccounts,
-    ) {
+    pub(crate) fn update_accounts_for_failed_tx(&mut self, rollback_accounts: &RollbackAccounts) {
         match rollback_accounts {
-            RollbackAccounts::FeePayerOnly { fee_payer_account, fee_payer_address } => {
+            RollbackAccounts::FeePayerOnly {
+                fee_payer_account,
+                fee_payer_address,
+            } => {
                 self.account_cache
                     .insert(*fee_payer_address, fee_payer_account.clone());
             }

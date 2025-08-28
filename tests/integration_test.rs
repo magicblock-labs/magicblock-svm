@@ -184,7 +184,10 @@ impl SvmTestEnvironment<'_> {
                 }
                 Ok(ProcessedTransaction::FeesOnly(fees_only_transaction)) => {
                     match fees_only_transaction.rollback_accounts.clone() {
-                        RollbackAccounts::FeePayerOnly { fee_payer_account, fee_payer_address } => {
+                        RollbackAccounts::FeePayerOnly {
+                            fee_payer_account,
+                            fee_payer_address,
+                        } => {
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
                                 fee_payer_address,
@@ -2541,8 +2544,10 @@ fn escrow_fee_charged_with_noop_transaction() {
     // Add the transaction to the test entry and set expected escrow deduction by one signature fee
     test_entry.push_transaction(tx);
     // Assert that the fee payer was not charged -> does not exist
-    assert!(test_entry.final_accounts
-        .get_mut(&fee_payer.pubkey()).is_none());
+    assert!(test_entry
+        .final_accounts
+        .get_mut(&fee_payer.pubkey())
+        .is_none());
     // Assert that the escrow account will be charged for the transaction fee
     test_entry.decrease_expected_lamports(&escrow_pubkey, LAMPORTS_PER_SIGNATURE);
 

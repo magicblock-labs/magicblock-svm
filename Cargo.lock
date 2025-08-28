@@ -2638,24 +2638,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-account"
-version = "2.2.1"
-source = "git+https://github.com/magicblock-labs/solana-account.git?rev=176540a#176540ae8445a3161b2e8d5ab97a4d48bab35679"
-dependencies = [
- "bincode",
- "qualifier_attr",
- "serde",
- "serde_bytes",
- "serde_derive",
- "solana-account-info",
- "solana-clock",
- "solana-instruction",
- "solana-pubkey",
- "solana-sdk-ids",
- "solana-sysvar",
-]
-
-[[package]]
 name = "solana-account-info"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2788,7 +2770,7 @@ dependencies = [
  "libsecp256k1",
  "qualifier_attr",
  "scopeguard",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-account-info",
  "solana-big-mod-exp",
  "solana-bincode",
@@ -2856,7 +2838,7 @@ version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83f0071874e629f29e0eb3dab8a863e98502ac7aba55b7e0df1803fc5cac72a7"
 dependencies = [
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-commitment-config",
  "solana-epoch-info",
  "solana-hash",
@@ -2973,7 +2955,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_derive",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-bincode",
  "solana-instruction",
  "solana-log-collector",
@@ -3138,7 +3120,7 @@ dependencies = [
  "bincode",
  "serde",
  "serde_derive",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-account-info",
  "solana-instruction",
  "solana-program-error",
@@ -3231,7 +3213,7 @@ dependencies = [
  "memmap2",
  "serde",
  "serde_derive",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-clock",
  "solana-cluster-type",
  "solana-epoch-schedule",
@@ -3430,7 +3412,7 @@ checksum = "81b24999844b09096c79567c1298617efe084860149d875b702ef76e2faa2462"
 dependencies = [
  "log",
  "qualifier_attr",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-bincode",
  "solana-bpf-loader-program",
  "solana-compute-budget",
@@ -3553,7 +3535,7 @@ version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cde971a20b8dbf60144d6a84439dda86b5466e00e2843091fe731083cda614da"
 dependencies = [
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-hash",
  "solana-nonce",
  "solana-sdk-ids",
@@ -3802,7 +3784,7 @@ dependencies = [
  "percentage",
  "rand 0.8.5",
  "serde",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-clock",
  "solana-compute-budget",
  "solana-epoch-rewards",
@@ -3892,7 +3874,7 @@ checksum = "7c1e19f5d5108b0d824244425e43bc78bbb9476e2199e979b0230c9f632d3bf4"
 dependencies = [
  "serde",
  "serde_derive",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-clock",
  "solana-epoch-schedule",
  "solana-frozen-abi",
@@ -3973,7 +3955,7 @@ dependencies = [
  "js-sys",
  "serde",
  "serde_json",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-bn254",
  "solana-client-traits",
  "solana-cluster-type",
@@ -4274,7 +4256,7 @@ checksum = "dabc713c25ff999424ec68ac4572f2ff6bfd6317922c7864435ccaf9c76504a8"
 dependencies = [
  "bincode",
  "log",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-bincode",
  "solana-clock",
  "solana-config-program",
@@ -4313,7 +4295,7 @@ dependencies = [
  "rand 0.7.3",
  "serde_derive",
  "shuttle",
- "solana-account 2.2.1 (git+https://github.com/magicblock-labs/solana-account.git?rev=176540a)",
+ "solana-account",
  "solana-bpf-loader-program",
  "solana-clock",
  "solana-compute-budget",
@@ -4429,7 +4411,7 @@ dependencies = [
  "log",
  "serde",
  "serde_derive",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-bincode",
  "solana-instruction",
  "solana-log-collector",
@@ -4566,7 +4548,7 @@ dependencies = [
  "bincode",
  "serde",
  "serde_derive",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-instruction",
  "solana-pubkey",
  "solana-rent",
@@ -4640,7 +4622,7 @@ dependencies = [
  "num-traits",
  "serde",
  "serde_derive",
- "solana-account 2.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "solana-account",
  "solana-bincode",
  "solana-clock",
  "solana-epoch-schedule",

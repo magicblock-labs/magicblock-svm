@@ -17,7 +17,7 @@ log = { version = "0.4.27" }
 percentage = { version = "0.1.0" }
 qualifier_attr = { version = "0.2.2", optional = true }
 serde_derive = { version = "1.0.217" }
-solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "176540a" }
+solana-account = { version = "=2.2.1" }
 solana-bpf-loader-program = { version = "=2.2.1" }
 solana-clock = { version = "=2.2.1" }
 solana-compute-budget = { version = "=2.2.1" }
@@ -71,6 +71,7 @@ openssl = "0.10"
 prost = "0.11.9"
 rand0-7 = { package = "rand", version = "0.7" }
 shuttle = "0.7.1"
+solana-account = { version = "=2.2.1" }
 solana-clock = { version = "=2.2.1" }
 solana-compute-budget = { version = "=2.2.1", features = ["dev-context-only-utils"] }
 solana-compute-budget-interface = { version = "=2.2.1" }
@@ -117,6 +118,3 @@ shuttle-test = [
     "solana-bpf-loader-program/shuttle-test",
     "solana-loader-v4-program/shuttle-test",
 ]
-
-#[patch.crates-io]
-#solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "176540a" }
