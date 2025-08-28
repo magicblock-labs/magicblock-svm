@@ -69,7 +69,7 @@ use {
     },
 };
 use crate::account_loader::LoadedTransactionAccount;
-use ephemeral_rollups_sdk::pda::ephemeral_balance_pda_from_payer;
+use crate::escrow::ephemeral_balance_pda_from_payer;
 
 /// A list of log messages emitted during a transaction
 pub type TransactionLogMessages = Vec<String>;
@@ -317,7 +317,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             .map(|cache| cache.get_environments_for_epoch(epoch))
     }
 
-    pub fn sysvar_cache(&self) -> RwLockReadGuard<SysvarCache> {
+    pub fn sysvar_cache(&self) -> RwLockReadGuard<'_, SysvarCache> {
         self.sysvar_cache.read().unwrap()
     }
 
@@ -439,7 +439,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     if enable_transaction_loading_failure_fees {
                         // Update loaded accounts cache with nonce and fee-payer
                         account_loader
-                            .update_accounts_for_failed_tx(tx, &fees_only_tx.rollback_accounts);
+                            .update_accounts_for_failed_tx(&fees_only_tx.rollback_accounts);
 
                         Ok(ProcessedTransaction::FeesOnly(Box::new(fees_only_tx)))
                     } else {
@@ -573,19 +573,21 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             error_counters.invalid_compute_budget += 1;
         })?;
 
-        let fee_payer_address = message.fee_payer();
+        let mut fee_payer_address = *message.fee_payer();
 
-        let mut loaded_fee_payer = match account_loader.load_account(fee_payer_address, true) {
+        let mut loaded_fee_payer = match account_loader.load_account(&fee_payer_address, true) {
             Some(account) => account,
             None => {
                 if fee_lamports_per_signature > 0 {
                     println!("There are fees to pay but the fee payer account is not found. Trying escrow...");
-                    let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address, 0);
+                    println!("Feepayer: {}", fee_payer_address);
+                    let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
                     match account_loader.load_account(&escrow_address, true) {
-                        Some(mut escrow_account) => {
+                        Some(escrow_account) => {
+                            fee_payer_address = escrow_address;
                             println!("Using escrow account as fee payer: {}", escrow_address);
                             println!("Escrow lamports: {}", escrow_account.account.lamports());
-                            // Return escrow account instead of error
+                            println!("Fee lamports per signature: {}", fee_lamports_per_signature);
                             escrow_account
                         },
                         None => {
@@ -609,7 +611,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         loaded_fee_payer.rent_collected = collect_rent_from_account(
             &account_loader.feature_set,
             rent_collector,
-            fee_payer_address,
+            &fee_payer_address,
             &mut loaded_fee_payer.account,
         )
         .rent_amount;
@@ -633,7 +635,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let fee_payer_index = 0;
         validate_fee_payer(
-            fee_payer_address,
+            &fee_payer_address,
             &mut loaded_fee_payer.account,
             fee_payer_index,
             error_counters,
@@ -645,11 +647,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         // to commit if transaction execution fails.
         let rollback_accounts = RollbackAccounts::new(
             nonce,
-            *fee_payer_address,
+            fee_payer_address,
             loaded_fee_payer.account.clone(),
             loaded_fee_payer.rent_collected,
             fee_payer_loaded_rent_epoch,
         );
+
+        println!("Transaction fee details: {:?}", &fee_details);
+        println!("Loaded fee payer account: {:?}", &loaded_fee_payer.account);
+        println!("Loaded fee payer address: {:?}", fee_payer_address);
 
         Ok(ValidatedTransactionDetails {
             fee_details,
@@ -2673,4 +2679,5 @@ mod tests {
             &[(fee_payer_address, vec![(Some(fee_payer_account), true)])],
         );
     }
+
 }

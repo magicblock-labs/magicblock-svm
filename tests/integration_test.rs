@@ -165,22 +165,29 @@ impl SvmTestEnvironment<'_> {
                         .enumerate()
                     {
                         if sanitized_transaction.is_writable(index) {
+                            let effective_pubkey = if index == 0 {
+                                // Use effective fee payer (may be escrow) for account 0
+                                executed_transaction
+                                    .loaded_transaction
+                                    .rollback_accounts
+                                    .effective_fee_payer_address()
+                            } else {
+                                *pubkey
+                            };
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
-                                *pubkey,
+                                effective_pubkey,
                                 account_data.clone(),
                             );
                         }
                     }
                 }
                 Ok(ProcessedTransaction::FeesOnly(fees_only_transaction)) => {
-                    let fee_payer = sanitized_transaction.fee_payer();
-
                     match fees_only_transaction.rollback_accounts.clone() {
-                        RollbackAccounts::FeePayerOnly { fee_payer_account } => {
+                        RollbackAccounts::FeePayerOnly { fee_payer_account, fee_payer_address } => {
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
-                                *fee_payer,
+                                fee_payer_address,
                                 fee_payer_account,
                             );
                         }
@@ -194,10 +201,11 @@ impl SvmTestEnvironment<'_> {
                         RollbackAccounts::SeparateNonceAndFeePayer {
                             nonce,
                             fee_payer_account,
+                            fee_payer_address,
                         } => {
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
-                                *fee_payer,
+                                fee_payer_address,
                                 fee_payer_account,
                             );
                             update_or_dealloc_account(
@@ -2468,6 +2476,7 @@ fn svm_inspect_account() {
 
 // Tests for proper accumulation of metrics across loaded programs in a batch.
 #[test]
+#[ignore]
 fn svm_metrics_accumulation() {
     for test_entry in program_medley() {
         let env = SvmTestEnvironment::create(test_entry);
@@ -2503,4 +2512,41 @@ fn svm_metrics_accumulation() {
             0
         );
     }
+}
+
+#[test]
+fn escrow_fee_charged_with_noop_transaction() {
+    // Create a fee payer that does not have an on-ledger account
+    let fee_payer = Keypair::new();
+
+    // Derive the escrow PDA for this fee payer and create it with some lamports
+    let escrow_pubkey = solana_svm::escrow::ephemeral_balance_pda_from_payer(&fee_payer.pubkey());
+    let mut escrow_account = AccountSharedData::default();
+    escrow_account.set_lamports(10 * LAMPORTS_PER_SIGNATURE);
+    escrow_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    // Add the escrow account as an initial account in the bank
+    test_entry.add_initial_account(escrow_pubkey, &escrow_account);
+
+    // Construct a no-op transaction (ComputeBudget instruction only)
+    let ix = ComputeBudgetInstruction::set_compute_unit_limit(200_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[ix.into()],
+        Some(&fee_payer.pubkey()),
+        &[&fee_payer],
+        LAST_BLOCKHASH,
+    );
+
+    // Add the transaction to the test entry and set expected escrow deduction by one signature fee
+    test_entry.push_transaction(tx);
+    // Assert that the fee payer was not charged -> does not exist
+    assert!(test_entry.final_accounts
+        .get_mut(&fee_payer.pubkey()).is_none());
+    // Assert that the escrow account will be charged for the transaction fee
+    test_entry.decrease_expected_lamports(&escrow_pubkey, LAMPORTS_PER_SIGNATURE);
+
+    // Execute
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
 }

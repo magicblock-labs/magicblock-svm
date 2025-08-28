@@ -11,6 +11,7 @@ use {
 pub enum RollbackAccounts {
     FeePayerOnly {
         fee_payer_account: AccountSharedData,
+        fee_payer_address: Pubkey,
     },
     SameNonceAndFeePayer {
         nonce: NonceInfo,
@@ -18,6 +19,7 @@ pub enum RollbackAccounts {
     SeparateNonceAndFeePayer {
         nonce: NonceInfo,
         fee_payer_account: AccountSharedData,
+        fee_payer_address: Pubkey,
     },
 }
 
@@ -26,6 +28,7 @@ impl Default for RollbackAccounts {
     fn default() -> Self {
         Self::FeePayerOnly {
             fee_payer_account: AccountSharedData::default(),
+            fee_payer_address: Pubkey::default(),
         }
     }
 }
@@ -62,6 +65,7 @@ impl RollbackAccounts {
                 RollbackAccounts::SeparateNonceAndFeePayer {
                     nonce,
                     fee_payer_account,
+                    fee_payer_address,
                 }
             }
         } else {
@@ -72,7 +76,7 @@ impl RollbackAccounts {
             // alter this behavior such that rent epoch updates are handled the
             // same for both nonce and non-nonce failed transactions.
             fee_payer_account.set_rent_epoch(fee_payer_loaded_rent_epoch);
-            RollbackAccounts::FeePayerOnly { fee_payer_account }
+            RollbackAccounts::FeePayerOnly { fee_payer_account, fee_payer_address }
         }
     }
 
@@ -88,15 +92,25 @@ impl RollbackAccounts {
     /// cost of transaction processing in the cost model.
     pub fn data_size(&self) -> usize {
         match self {
-            Self::FeePayerOnly { fee_payer_account } => fee_payer_account.data().len(),
+            Self::FeePayerOnly { fee_payer_account, .. } => fee_payer_account.data().len(),
             Self::SameNonceAndFeePayer { nonce } => nonce.account().data().len(),
             Self::SeparateNonceAndFeePayer {
                 nonce,
                 fee_payer_account,
+                ..
             } => fee_payer_account
                 .data()
                 .len()
                 .saturating_add(nonce.account().data().len()),
+        }
+    }
+
+    /// Return the effective fee-payer address that should be written back for fees-only results.
+    pub fn effective_fee_payer_address(&self) -> Pubkey {
+        match self {
+            Self::FeePayerOnly { fee_payer_address, .. } => *fee_payer_address,
+            Self::SameNonceAndFeePayer { nonce } => *nonce.address(),
+            Self::SeparateNonceAndFeePayer { fee_payer_address, .. } => *fee_payer_address,
         }
     }
 }
@@ -138,8 +152,9 @@ mod tests {
 
         let expected_fee_payer_account = fee_payer_account;
         match rollback_accounts {
-            RollbackAccounts::FeePayerOnly { fee_payer_account } => {
+            RollbackAccounts::FeePayerOnly { fee_payer_account, fee_payer_address: addr } => {
                 assert_eq!(expected_fee_payer_account, fee_payer_account);
+                assert_eq!(addr, fee_payer_address);
             }
             _ => panic!("Expected FeePayerOnly variant"),
         }
@@ -226,10 +241,12 @@ mod tests {
             RollbackAccounts::SeparateNonceAndFeePayer {
                 nonce,
                 fee_payer_account,
+                fee_payer_address: addr,
             } => {
                 assert_eq!(nonce.address(), &nonce_address);
                 assert_eq!(nonce.account(), &nonce_account);
                 assert_eq!(expected_fee_payer_account, fee_payer_account);
+                assert_eq!(addr, fee_payer_address);
             }
             _ => panic!("Expected SeparateNonceAndFeePayer variant"),
         }

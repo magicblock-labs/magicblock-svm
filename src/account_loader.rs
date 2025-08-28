@@ -199,7 +199,6 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
             );
         } else {
             self.update_accounts_for_failed_tx(
-                message,
                 &executed_transaction.loaded_transaction.rollback_accounts,
             );
         }
@@ -207,12 +206,10 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
 
     pub(crate) fn update_accounts_for_failed_tx(
         &mut self,
-        message: &impl SVMMessage,
         rollback_accounts: &RollbackAccounts,
     ) {
-        let fee_payer_address = message.fee_payer();
         match rollback_accounts {
-            RollbackAccounts::FeePayerOnly { fee_payer_account } => {
+            RollbackAccounts::FeePayerOnly { fee_payer_account, fee_payer_address } => {
                 self.account_cache
                     .insert(*fee_payer_address, fee_payer_account.clone());
             }
@@ -223,6 +220,7 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
             RollbackAccounts::SeparateNonceAndFeePayer {
                 nonce,
                 fee_payer_account,
+                fee_payer_address,
             } => {
                 self.account_cache
                     .insert(*nonce.address(), nonce.account().clone());
@@ -1195,8 +1193,11 @@ mod tests {
             }
         }
 
-        // If payer account has no balance, expected AccountNotFound Error
+        // If payer account has no balance, expected InsufficientFundsForFee Error
         // regardless feature gate status, or if payer is nonce account.
+        // NOTE: solana svm returns AccountNotFound, but since we support not existing (signer)
+        // accounts as fee payer (when validator fees = 0), we return InsufficientFundsForFee
+        // instead.
         {
             for is_nonce in [true, false] {
                 validate_fee_payer_account(
@@ -1204,7 +1205,7 @@ mod tests {
                         is_nonce,
                         payer_init_balance: 0,
                         fee,
-                        expected_result: Err(TransactionError::AccountNotFound),
+                        expected_result: Err(TransactionError::InsufficientFundsForFee),
                         payer_post_balance: 0,
                     },
                     &rent_collector,

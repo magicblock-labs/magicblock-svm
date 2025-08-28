@@ -1,0 +1,318 @@
+error[E0308]: mismatched types
+   --> src/account_loader.rs:251:49
+    |
+251 |             self.account_cache.insert(*address, account.clone());
+    |                                ------           ^^^^^^^^^^^^^^^ expected `solana_account::AccountSharedData`, found `AccountSharedData`
+    |                                |
+    |                                arguments to this method are incorrect
+    |
+note: two different versions of crate `solana_account` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+   --> /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:125:1
+    |
+125 | pub enum AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type `solana_account::AccountSharedData`
+    |
+   ::: /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:136:1
+    |
+136 | pub struct AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the found type `solana_sdk::solana_account::AccountSharedData`
+    |
+   ::: src/account_loader.rs:13:5
+    |
+13  |     solana_account::{
+    |     -------------- one version of crate `solana_account` used here, as a direct dependency of the current crate
+...
+22  |     solana_nonce_account::{get_system_account_kind, SystemAccountKind},
+    |     -------------------- one version of crate `solana_account` used here, as a dependency of crate `solana_nonce_account`
+    = help: you can use `cargo tree` to explore your dependency tree
+help: the return type of this call is `solana_sdk::solana_account::AccountSharedData` due to the type of the argument passed
+   --> src/account_loader.rs:251:13
+    |
+251 |             self.account_cache.insert(*address, account.clone());
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^---------------^
+    |                                                 |
+    |                                                 this argument influences the return type of `insert`
+note: method defined here
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ahash-0.8.12/src/hash_map.rs:185:12
+    |
+185 |     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
+    |            ^^^^^^
+error[E0308]: mismatched types
+   --> src/account_loader.rs:266:46
+    |
+266 |         rent_collector.collect_rent(address, account)
+    |                        ------------          ^^^^^^^ expected `AccountSharedData`, found `solana_account::AccountSharedData`
+    |                        |
+    |                        arguments to this method are incorrect
+    |
+note: two different versions of crate `solana_account` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+   --> /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:125:1
+    |
+125 | pub enum AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the found type `solana_account::AccountSharedData`
+    |
+   ::: /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:136:1
+    |
+136 | pub struct AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type `solana_sdk::solana_account::AccountSharedData`
+    |
+   ::: src/account_loader.rs:13:5
+    |
+13  |     solana_account::{
+    |     -------------- one version of crate `solana_account` used here, as a direct dependency of the current crate
+...
+22  |     solana_nonce_account::{get_system_account_kind, SystemAccountKind},
+    |     -------------------- one version of crate `solana_account` used here, as a dependency of crate `solana_nonce_account`
+    = help: you can use `cargo tree` to explore your dependency tree
+note: method defined here
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-svm-rent-collector-2.2.1/src/svm_rent_collector.rs:80:8
+    |
+80  |     fn collect_rent(&self, address: &Pubkey, account: &mut AccountShare...
+    |        ^^^^^^^^^^^^
+error[E0308]: mismatched types
+   --> src/account_loader.rs:299:55
+    |
+299 | ...count_kind = get_system_account_kind(payer_account).ok_or_else(|| {
+    |                 ----------------------- ^^^^^^^^^^^^^ expected `&AccountSharedData`, found `&mut AccountSharedData`
+    |                 |
+    |                 arguments to this function are incorrect
+    |
+note: two different versions of crate `solana_account` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+   --> /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:125:1
+    |
+125 | pub enum AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the found type `solana_account::AccountSharedData`
+    |
+   ::: /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:136:1
+    |
+136 | pub struct AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type `solana_sdk::solana_account::AccountSharedData`
+    |
+   ::: src/account_loader.rs:13:5
+    |
+13  |     solana_account::{
+    |     -------------- one version of crate `solana_account` used here, as a direct dependency of the current crate
+...
+22  |     solana_nonce_account::{get_system_account_kind, SystemAccountKind},
+    |     -------------------- one version of crate `solana_account` used here, as a dependency of crate `solana_nonce_account`
+    = help: you can use `cargo tree` to explore your dependency tree
+note: function defined here
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-nonce-account-2.2.1/src/lib.rs:55:8
+    |
+55  | pub fn get_system_account_kind(account: &AccountSharedData) -> Option<S...
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+error[E0308]: mismatched types
+   --> src/account_loader.rs:323:70
+    |
+323 | ...nt_collector.get_account_rent_state(payer_account);
+    |                 ---------------------- ^^^^^^^^^^^^^ expected `&AccountSharedData`, found `&mut AccountSharedData`
+    |                 |
+    |                 arguments to this method are incorrect
+    |
+note: two different versions of crate `solana_account` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+   --> /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:125:1
+    |
+125 | pub enum AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the found type `solana_account::AccountSharedData`
+    |
+   ::: /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:136:1
+    |
+136 | pub struct AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type `solana_sdk::solana_account::AccountSharedData`
+    |
+   ::: src/account_loader.rs:13:5
+    |
+13  |     solana_account::{
+    |     -------------- one version of crate `solana_account` used here, as a direct dependency of the current crate
+...
+22  |     solana_nonce_account::{get_system_account_kind, SystemAccountKind},
+    |     -------------------- one version of crate `solana_account` used here, as a dependency of crate `solana_nonce_account`
+    = help: you can use `cargo tree` to explore your dependency tree
+note: method defined here
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-svm-rent-collector-2.2.1/src/svm_rent_collector.rs:87:8
+    |
+87  |     fn get_account_rent_state(&self, account: &AccountSharedData) -> Re...
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+error[E0308]: mismatched types
+   --> src/account_loader.rs:328:71
+    |
+328 | ...nt_collector.get_account_rent_state(payer_account);
+    |                 ---------------------- ^^^^^^^^^^^^^ expected `&AccountSharedData`, found `&mut AccountSharedData`
+    |                 |
+    |                 arguments to this method are incorrect
+    |
+note: two different versions of crate `solana_account` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+   --> /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:125:1
+    |
+125 | pub enum AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the found type `solana_account::AccountSharedData`
+    |
+   ::: /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:136:1
+    |
+136 | pub struct AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type `solana_sdk::solana_account::AccountSharedData`
+    |
+   ::: src/account_loader.rs:13:5
+    |
+13  |     solana_account::{
+    |     -------------- one version of crate `solana_account` used here, as a direct dependency of the current crate
+...
+22  |     solana_nonce_account::{get_system_account_kind, SystemAccountKind},
+    |     -------------------- one version of crate `solana_account` used here, as a dependency of crate `solana_nonce_account`
+    = help: you can use `cargo tree` to explore your dependency tree
+note: method defined here
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-svm-rent-collector-2.2.1/src/svm_rent_collector.rs:87:8
+    |
+87  |     fn get_account_rent_state(&self, account: &AccountSharedData) -> Re...
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+error[E0308]: mismatched types
+   --> src/account_loader.rs:333:9
+    |
+329 |     rent_collector.check_rent_state_with_account(
+    |                    ----------------------------- arguments to this method are incorrect
+...
+333 |         payer_account,
+    |         ^^^^^^^^^^^^^ expected `&AccountSharedData`, found `&mut AccountSharedData`
+    |
+note: two different versions of crate `solana_account` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+   --> /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:125:1
+    |
+125 | pub enum AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the found type `solana_account::AccountSharedData`
+    |
+   ::: /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:136:1
+    |
+136 | pub struct AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type `solana_sdk::solana_account::AccountSharedData`
+    |
+   ::: src/account_loader.rs:13:5
+    |
+13  |     solana_account::{
+    |     -------------- one version of crate `solana_account` used here, as a direct dependency of the current crate
+...
+22  |     solana_nonce_account::{get_system_account_kind, SystemAccountKind},
+    |     -------------------- one version of crate `solana_account` used here, as a dependency of crate `solana_nonce_account`
+    = help: you can use `cargo tree` to explore your dependency tree
+note: method defined here
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-svm-rent-collector-2.2.1/src/svm_rent_collector.rs:61:8
+    |
+61  |     fn check_rent_state_with_account(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+error[E0308]: mismatched types
+   --> src/account_loader.rs:522:9
+    |
+397 |     let mut accounts = Vec::with_capacity(account_keys.len());
+    |                        -------------------------------------- here the type of `accounts` is inferred to be `Vec<(Pubkey, solana_account::AccountSharedData)>`
+...
+522 |         accounts,
+    |         ^^^^^^^^ expected `AccountSharedData`, found `solana_account::AccountSharedData`
+    |
+note: two different versions of crate `solana_account` are being used; two types coming from two different versions of the same crate are different types even if they look the same
+   --> /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:125:1
+    |
+125 | pub enum AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the found type `solana_account::AccountSharedData`
+    |
+   ::: /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:136:1
+    |
+136 | pub struct AccountSharedData {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type `solana_sdk::solana_account::AccountSharedData`
+    |
+   ::: src/account_loader.rs:13:5
+    |
+13  |     solana_account::{
+    |     -------------- one version of crate `solana_account` used here, as a direct dependency of the current crate
+...
+22  |     solana_nonce_account::{get_system_account_kind, SystemAccountKind},
+    |     -------------------- one version of crate `solana_account` used here, as a dependency of crate `solana_nonce_account`
+    = help: you can use `cargo tree` to explore your dependency tree
+error[E0599]: no method named `data_as_mut_slice` found for struct `RefMut<'_, AccountSharedData>` in the current scope
+   --> src/message_processor.rs:43:33
+    |
+43  |                 mut_account_ref.data_as_mut_slice(),
+    |                                 ^^^^^^^^^^^^^^^^^ method not found in `RefMut<'_, AccountSharedData>`
+    |
+note: there are multiple different versions of crate `solana_account` in the dependency graph
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:185:1
+    |
+185 | pub trait WritableAccount: ReadableAccount {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the trait that is needed
+...
+209 |     fn data_as_mut_slice(&mut self) -> &mut [u8];
+    |     --------------------------------------------- the method is available for `RefMut<'_, solana_sdk::solana_account::AccountSharedData>` here
+    |
+   ::: src/message_processor.rs:2:5
+    |
+2   |     solana_account::WritableAccount,
+    |     ------------------------------- `WritableAccount` imported here doesn't correspond to the right version of crate `solana_account`
+    |
+   ::: /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:179:1
+    |
+179 | pub trait WritableAccount: ReadableAccount {
+    | ------------------------------------------ this is the trait that was imported
+error[E0599]: no method named `owner` found for struct `Ref<'_, AccountSharedData>` in the current scope
+   --> src/transaction_account_state_info.rs:31:72
+    |
+31  | ...check_id(account.owner()));
+    |                     ^^^^^ private field, not a method
+    |
+note: there are multiple different versions of crate `solana_account` in the dependency graph
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:223:1
+    |
+223 | pub trait ReadableAccount: Sized {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this is the trait that is needed
+...
+226 |     fn owner(&self) -> &Pubkey;
+    |     --------------------------- the method is available for `Ref<'_, solana_sdk::solana_account::AccountSharedData>` here
+    |
+   ::: src/transaction_account_state_info.rs:2:5
+    |
+2   |     solana_account::ReadableAccount,
+    |     ------------------------------- `ReadableAccount` imported here doesn't correspond to the right version of crate `solana_account`
+    |
+   ::: /Users/gabrielepicco/.cargo/git/checkouts/solana-account-558d27a83388a655/176540a/src/lib.rs:217:1
+    |
+217 | pub trait ReadableAccount: Sized {
+    | -------------------------------- this is the trait that was imported
+help: there is a method `set_owner` with a similar name, but with different arguments
+   --> /Users/gabrielepicco/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-account-2.2.1/src/lib.rs:210:5
+    |
+210 |     fn set_owner(&mut self, owner: Pubkey);
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+error[E0308]: mismatched types
+   --> src/transaction_processor.rs:977:47
+    |
+977 | ...     transaction_accounts_lamports_sum(&transaction_accounts).unwrap...
+    |         --------------------------------- ^^^^^^^^^^^^^^^^^^^^^ expected `&[(Pubkey, AccountSharedData)]`, found `&Vec<(Pubkey, AccountSharedData)>`
+    |         |
+    |         arguments to this function are incorrect
+    |
+    = note: expected reference `&[(Pubkey, solana_account::AccountSharedData)]`
+               found reference `&Vec<(Pubkey, solana_sdk::solana_account::AccountSharedData)>`
+note: function defined here
+   --> src/transaction_processor.rs:963:12
+    |
+963 |         fn transaction_accounts_lamports_sum(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+964 |             accounts: &[(Pubkey, AccountSharedData)],
+    |             ----------------------------------------
+error[E0308]: mismatched types
+    --> src/transaction_processor.rs:1096:50
+     |
+1096 |             && transaction_accounts_lamports_sum(&accounts)
+     |                --------------------------------- ^^^^^^^^^ expected `&[(Pubkey, AccountSharedData)]`, found `&Vec<(Pubkey, AccountSharedData)>`
+     |                |
+     |                arguments to this function are incorrect
+     |
+     = note: expected reference `&[(Pubkey, solana_account::AccountSharedData)]`
+                found reference `&Vec<(Pubkey, solana_sdk::solana_account::AccountSharedData)>`
+note: function defined here
+    --> src/transaction_processor.rs:963:12
+     |
+963  |         fn transaction_accounts_lamports_sum(
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+964  |             accounts: &[(Pubkey, AccountSharedData)],
+     |             ----------------------------------------
+Some errors have detailed explanations: E0308, E0599.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `solana-svm` (lib) due to 11 previous errors

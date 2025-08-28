@@ -16,9 +16,8 @@ ahash = { version = "0.8.12" }
 log = { version = "0.4.27" }
 percentage = { version = "0.1.0" }
 qualifier_attr = { version = "0.2.2", optional = true }
-serde = { version = "1.0.217", features = ["rc"] }
 serde_derive = { version = "1.0.217" }
-solana-account = { version = "=2.2.1" }
+solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "176540a" }
 solana-bpf-loader-program = { version = "=2.2.1" }
 solana-clock = { version = "=2.2.1" }
 solana-compute-budget = { version = "=2.2.1" }
@@ -52,8 +51,8 @@ solana-timings = { version = "=2.2.1" }
 solana-transaction-context = { version = "=2.2.1" }
 solana-transaction-error = { version = "=2.2.1" }
 solana-type-overrides = { version = "=2.2.1" }
+solana-reserved-account-keys = { version = "=2.2.1" }
 thiserror = { version = "2.0.12" }
-ephemeral-rollups-sdk = { version = "0.2.5" }
 
 [lib]
 crate-type = ["lib"]
@@ -118,3 +117,6 @@ shuttle-test = [
     "solana-bpf-loader-program/shuttle-test",
     "solana-loader-v4-program/shuttle-test",
 ]
+
+#[patch.crates-io]
+#solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "176540a" }
