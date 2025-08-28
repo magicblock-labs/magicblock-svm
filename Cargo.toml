@@ -16,6 +16,7 @@ ahash = { version = "0.8.12" }
 log = { version = "0.4.27" }
 percentage = { version = "0.1.0" }
 qualifier_attr = { version = "0.2.2", optional = true }
+serde = { version = "1.0.217", features = ["rc"] }
 serde_derive = { version = "1.0.217" }
 solana-account = { version = "=2.2.1" }
 solana-bpf-loader-program = { version = "=2.2.1" }

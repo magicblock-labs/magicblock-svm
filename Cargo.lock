@@ -4293,6 +4293,7 @@ dependencies = [
  "prost",
  "qualifier_attr",
  "rand 0.7.3",
+ "serde",
  "serde_derive",
  "shuttle",
  "solana-account",
