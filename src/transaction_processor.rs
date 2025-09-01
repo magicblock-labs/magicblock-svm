@@ -648,10 +648,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             fee_payer_loaded_rent_epoch,
         );
 
-        println!("Transaction fee details: {:?}", &fee_details);
-        println!("Loaded fee payer account: {:?}", &loaded_fee_payer.account);
-        println!("Loaded fee payer address: {:?}", fee_payer_address);
-
         Ok(ValidatedTransactionDetails {
             fee_details,
             rollback_accounts,
