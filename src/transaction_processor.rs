@@ -575,29 +575,27 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut fee_payer_address = *message.fee_payer();
 
-        let mut loaded_fee_payer = match account_loader.load_account(&fee_payer_address, true) {
-            Some(account) => account,
-            None => {
-                if fee_lamports_per_signature > 0 {
-                    // Try to charge the escrow if it exists
-                    let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
-                    match account_loader.load_account(&escrow_address, true) {
-                        Some(escrow_account) => {
-                            fee_payer_address = escrow_address;
-                            escrow_account
-                        }
-                        None => {
-                            error_counters.account_not_found += 1;
-                            return Err(TransactionError::AccountNotFound);
-                        }
-                    }
+        let mut loaded_fee_payer = {
+            // Load an account only if it exists *and* is delegated
+            let mut load_if_delegated = |addr: &Pubkey| -> Option<LoadedTransactionAccount> {
+                match account_loader.load_account(addr, true) {
+                    Some(acc) if acc.account.delegated() => Some(acc),
+                    _ => None,
+                }
+            };
+
+            // 1) Prefer the fee payer if delegated
+            if let Some(acc) = load_if_delegated(&fee_payer_address) {
+                acc
+            } else {
+                // 2) Otherwise require escrow to exist and be delegated
+                let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
+                if let Some(acc) = load_if_delegated(&escrow_address) {
+                    fee_payer_address = escrow_address;
+                    acc
                 } else {
-                    // No fees, so return a default account
-                    LoadedTransactionAccount {
-                        account: AccountSharedData::default(),
-                        loaded_size: 0,
-                        rent_collected: 0,
-                    }
+                    error_counters.invalid_account_for_fee += 1;
+                    return Err(TransactionError::InvalidAccountForFee);
                 }
             }
         };
@@ -2194,12 +2192,13 @@ mod tests {
 
         let fee_payer_rent_epoch = current_epoch;
         let fee_payer_rent_debit = 0;
-        let fee_payer_account = AccountSharedData::new_rent_epoch(
+        let mut fee_payer_account = AccountSharedData::new_rent_epoch(
             starting_balance,
             0,
             &Pubkey::default(),
             fee_payer_rent_epoch,
         );
+        fee_payer_account.set_delegated(true);
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
@@ -2268,7 +2267,8 @@ mod tests {
         let min_balance = rent_collector.rent.minimum_balance(0);
         let transaction_fee = lamports_per_signature;
         let starting_balance = min_balance - 1;
-        let fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
+        let mut fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
+        fee_payer_account.set_delegated(true);
         let fee_payer_rent_debit = rent_collector
             .get_rent_due(
                 fee_payer_account.lamports(),
@@ -2348,8 +2348,8 @@ mod tests {
                 &mock_bank,
             );
 
-        assert_eq!(error_counters.account_not_found.0, 1);
-        assert_eq!(result, Err(TransactionError::AccountNotFound));
+        assert_eq!(error_counters.invalid_account_for_fee.0, 1);
+        assert_eq!(result, Err(TransactionError::InvalidAccountForFee));
     }
 
     #[test]
@@ -2358,7 +2358,8 @@ mod tests {
         let message =
             new_unchecked_sanitized_message(Message::new(&[], Some(&Pubkey::new_unique())));
         let fee_payer_address = message.fee_payer();
-        let fee_payer_account = AccountSharedData::new(1, 0, &Pubkey::default());
+        let mut fee_payer_account = AccountSharedData::new(1, 0, &Pubkey::default());
+        fee_payer_account.set_delegated(true);
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
@@ -2394,7 +2395,8 @@ mod tests {
         let rent_collector = RentCollector::default();
         let min_balance = rent_collector.rent.minimum_balance(0);
         let starting_balance = min_balance + transaction_fee - 1;
-        let fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
+        let mut fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
+        fee_payer_account.set_delegated(true);
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
@@ -2510,7 +2512,7 @@ mod tests {
 
         // Sufficient Fees
         {
-            let fee_payer_account = AccountSharedData::new_data(
+            let mut fee_payer_account = AccountSharedData::new_data(
                 min_balance + transaction_fee + priority_fee,
                 &nonce::versions::Versions::new(nonce::state::State::Initialized(
                     nonce::state::Data::new(
@@ -2522,6 +2524,7 @@ mod tests {
                 &system_program::id(),
             )
             .unwrap();
+            fee_payer_account.set_delegated(true);
 
             let mut mock_accounts = HashMap::new();
             mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
@@ -2613,8 +2616,8 @@ mod tests {
                 &mock_bank,
             );
 
-            assert_eq!(error_counters.insufficient_funds.0, 1);
-            assert_eq!(result, Err(TransactionError::InsufficientFundsForFee));
+            assert_eq!(error_counters.invalid_account_for_fee.0, 1);
+            assert_eq!(result, Err(TransactionError::InvalidAccountForFee));
         }
     }
 
@@ -2623,12 +2626,13 @@ mod tests {
     #[test]
     fn test_inspect_account_fee_payer() {
         let fee_payer_address = Pubkey::new_unique();
-        let fee_payer_account = AccountSharedData::new_rent_epoch(
+        let mut fee_payer_account = AccountSharedData::new_rent_epoch(
             123_000_000_000,
             0,
             &Pubkey::default(),
             RENT_EXEMPT_RENT_EPOCH,
         );
+        fee_payer_account.set_delegated(true);
         let mock_bank = MockBankCallback::default();
         mock_bank
             .account_shared_data

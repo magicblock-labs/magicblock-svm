@@ -166,7 +166,6 @@ impl SvmTestEnvironment<'_> {
                     {
                         if sanitized_transaction.is_writable(index) {
                             let effective_pubkey = if index == 0 {
-                                // Use effective fee payer (may be escrow) for account 0
                                 executed_transaction
                                     .loaded_transaction
                                     .rollback_accounts
@@ -2525,6 +2524,7 @@ fn escrow_fee_charged_with_noop_transaction() {
     // Derive the escrow PDA for this fee payer and create it with some lamports
     let escrow_pubkey = solana_svm::escrow::ephemeral_balance_pda_from_payer(&fee_payer.pubkey());
     let mut escrow_account = AccountSharedData::default();
+    escrow_account.set_delegated(true);
     escrow_account.set_lamports(10 * LAMPORTS_PER_SIGNATURE);
     escrow_account.set_rent_epoch(u64::MAX);
 
@@ -2548,6 +2548,90 @@ fn escrow_fee_charged_with_noop_transaction() {
         .final_accounts
         .get_mut(&fee_payer.pubkey())
         .is_none());
+    // Assert that the escrow account will be charged for the transaction fee
+    test_entry.decrease_expected_lamports(&escrow_pubkey, LAMPORTS_PER_SIGNATURE);
+
+    // Execute
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+#[test]
+fn escrow_fee_rejected_when_not_delegated() {
+    // Create a fee payer that does not have an on-ledger account
+    let fee_payer = Keypair::new();
+
+    // Derive the escrow PDA for this fee payer and create it with some lamports
+    let escrow_pubkey = solana_svm::escrow::ephemeral_balance_pda_from_payer(&fee_payer.pubkey());
+    let mut escrow_account = AccountSharedData::default();
+    // Not delegated: should not be allowed to pay fees
+    escrow_account.set_delegated(false);
+    escrow_account.set_lamports(10 * LAMPORTS_PER_SIGNATURE);
+    escrow_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    // Add the escrow account as an initial account in the bank
+    test_entry.add_initial_account(escrow_pubkey, &escrow_account);
+
+    // Construct a no-op transaction (ComputeBudget instruction only)
+    let ix = ComputeBudgetInstruction::set_compute_unit_limit(200_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[ix.into()],
+        Some(&fee_payer.pubkey()),
+        &[&fee_payer],
+        LAST_BLOCKHASH,
+    );
+
+    // Expect the transaction to be discarded due to InvalidAccountForFee
+    test_entry.push_transaction_with_status(tx, ExecutionStatus::Discarded);
+
+    // Execute
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+#[test]
+fn escrow_fee_charged_when_feepayer_exists_and_not_delegated() {
+    let fee_payer = Keypair::new();
+    let mut fee_payer_account = AccountSharedData::default();
+    fee_payer_account.set_lamports(1_000_000_000);
+    fee_payer_account.set_delegated(false); // explicitly not delegated
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    // Derive the escrow PDA for this fee payer and create it with some lamports, delegated
+    let escrow_pubkey = solana_svm::escrow::ephemeral_balance_pda_from_payer(&fee_payer.pubkey());
+    let mut escrow_account = AccountSharedData::default();
+    escrow_account.set_delegated(true);
+    escrow_account.set_lamports(10 * LAMPORTS_PER_SIGNATURE);
+    escrow_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    // Add the fee payer and the escrow account as initial accounts in the bank
+    test_entry.add_initial_account(fee_payer.pubkey(), &fee_payer_account);
+    test_entry.add_initial_account(escrow_pubkey, &escrow_account);
+
+    // Construct a no-op transaction (ComputeBudget instruction only)
+    let ix = ComputeBudgetInstruction::set_compute_unit_limit(200_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[ix.into()],
+        Some(&fee_payer.pubkey()),
+        &[&fee_payer],
+        LAST_BLOCKHASH,
+    );
+
+    // Add the transaction to the test entry and set expected escrow deduction by one signature fee
+    test_entry.push_transaction(tx);
+
+    // Assert that the fee payer exists and is not charged (balance remains 1_000_000_000)
+    assert_eq!(
+        test_entry
+            .final_accounts
+            .get(&fee_payer.pubkey())
+            .unwrap()
+            .lamports(),
+        1_000_000_000
+    );
+
     // Assert that the escrow account will be charged for the transaction fee
     test_entry.decrease_expected_lamports(&escrow_pubkey, LAMPORTS_PER_SIGNATURE);
 

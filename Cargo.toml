@@ -119,3 +119,6 @@ shuttle-test = [
     "solana-bpf-loader-program/shuttle-test",
     "solana-loader-v4-program/shuttle-test",
 ]
+
+[patch.crates-io]
+solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "9a62efa" }
