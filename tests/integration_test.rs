@@ -166,10 +166,22 @@ impl SvmTestEnvironment<'_> {
                     {
                         if sanitized_transaction.is_writable(index) {
                             let effective_pubkey = if index == 0 {
-                                executed_transaction
-                                    .loaded_transaction
-                                    .rollback_accounts
-                                    .effective_fee_payer_address()
+                                // Compute effective fee payer address (may be escrow PDA)
+                                let mut addr = *sanitized_transaction.fee_payer();
+                                let is_delegated = |key: &Pubkey| {
+                                    final_accounts_actual
+                                        .get(key)
+                                        .map(|a| a.delegated())
+                                        .unwrap_or(false)
+                                };
+                                if !is_delegated(&addr) {
+                                    let escrow =
+                                        solana_svm::escrow::ephemeral_balance_pda_from_payer(&addr);
+                                    if is_delegated(&escrow) {
+                                        addr = escrow;
+                                    }
+                                }
+                                addr
                             } else {
                                 *pubkey
                             };
@@ -184,12 +196,26 @@ impl SvmTestEnvironment<'_> {
                 Ok(ProcessedTransaction::FeesOnly(fees_only_transaction)) => {
                     match fees_only_transaction.rollback_accounts.clone() {
                         RollbackAccounts::FeePayerOnly {
-                            fee_payer_account,
-                            fee_payer_address,
+                            fee_payer_account, ..
                         } => {
+                            // Compute effective fee payer address (may be escrow PDA)
+                            let mut addr = *sanitized_transaction.fee_payer();
+                            let is_delegated = |key: &Pubkey| {
+                                final_accounts_actual
+                                    .get(key)
+                                    .map(|a| a.delegated())
+                                    .unwrap_or(false)
+                            };
+                            if !is_delegated(&addr) {
+                                let escrow =
+                                    solana_svm::escrow::ephemeral_balance_pda_from_payer(&addr);
+                                if is_delegated(&escrow) {
+                                    addr = escrow;
+                                }
+                            }
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
-                                fee_payer_address,
+                                addr,
                                 fee_payer_account,
                             );
                         }
@@ -203,11 +229,25 @@ impl SvmTestEnvironment<'_> {
                         RollbackAccounts::SeparateNonceAndFeePayer {
                             nonce,
                             fee_payer_account,
-                            fee_payer_address,
                         } => {
+                            // Compute effective fee payer address (may be escrow PDA)
+                            let mut addr = *sanitized_transaction.fee_payer();
+                            let is_delegated = |key: &Pubkey| {
+                                final_accounts_actual
+                                    .get(key)
+                                    .map(|a| a.delegated())
+                                    .unwrap_or(false)
+                            };
+                            if !is_delegated(&addr) {
+                                let escrow =
+                                    solana_svm::escrow::ephemeral_balance_pda_from_payer(&addr);
+                                if is_delegated(&escrow) {
+                                    addr = escrow;
+                                }
+                            }
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
-                                fee_payer_address,
+                                addr,
                                 fee_payer_account,
                             );
                             update_or_dealloc_account(

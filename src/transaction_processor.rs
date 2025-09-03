@@ -438,8 +438,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 TransactionLoadResult::FeesOnly(fees_only_tx) => {
                     if enable_transaction_loading_failure_fees {
                         // Update loaded accounts cache with nonce and fee-payer
-                        account_loader
-                            .update_accounts_for_failed_tx(&fees_only_tx.rollback_accounts);
+                        {
+                            let fee_payer_address =
+                                account_loader.effective_fee_payer_address_for_failed_tx(tx);
+                            account_loader.update_accounts_for_failed_tx(
+                                &fees_only_tx.rollback_accounts,
+                                &fee_payer_address,
+                            );
+                        }
 
                         Ok(ProcessedTransaction::FeesOnly(Box::new(fees_only_tx)))
                     } else {

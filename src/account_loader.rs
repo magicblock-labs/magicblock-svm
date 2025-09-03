@@ -198,17 +198,43 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
                 &executed_transaction.loaded_transaction.accounts,
             );
         } else {
+            let fee_payer_address = self.effective_fee_payer_address_for_failed_tx(message);
             self.update_accounts_for_failed_tx(
                 &executed_transaction.loaded_transaction.rollback_accounts,
+                &fee_payer_address,
             );
         }
     }
 
-    pub(crate) fn update_accounts_for_failed_tx(&mut self, rollback_accounts: &RollbackAccounts) {
+    pub(crate) fn effective_fee_payer_address_for_failed_tx(
+        &mut self,
+        message: &impl SVMMessage,
+    ) -> Pubkey {
+        use crate::escrow::ephemeral_balance_pda_from_payer;
+        let fee_payer_address = *message.fee_payer();
+        let mut is_delegated = |addr: &Pubkey| -> bool {
+            self.load_account(addr, true)
+                .map(|acc| acc.account.delegated())
+                .unwrap_or(false)
+        };
+        if is_delegated(&fee_payer_address) {
+            return fee_payer_address;
+        }
+        let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
+        if is_delegated(&escrow_address) {
+            return escrow_address;
+        }
+        fee_payer_address
+    }
+
+    pub(crate) fn update_accounts_for_failed_tx(
+        &mut self,
+        rollback_accounts: &RollbackAccounts,
+        fee_payer_address: &Pubkey,
+    ) {
         match rollback_accounts {
             RollbackAccounts::FeePayerOnly {
-                fee_payer_account,
-                fee_payer_address,
+                fee_payer_account, ..
             } => {
                 self.account_cache
                     .insert(*fee_payer_address, fee_payer_account.clone());
@@ -220,7 +246,7 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
             RollbackAccounts::SeparateNonceAndFeePayer {
                 nonce,
                 fee_payer_account,
-                fee_payer_address,
+                ..
             } => {
                 self.account_cache
                     .insert(*nonce.address(), nonce.account().clone());
