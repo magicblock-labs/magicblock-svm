@@ -44,6 +44,7 @@ solana-program-runtime = { version = "=2.2.1", features = ["metrics"] }
 solana-pubkey = { version = "=2.2.1" }
 solana-rent = { version = "=2.2.1" }
 solana-rent-debits = { version = "=2.2.1" }
+solana-reserved-account-keys = { version = "=2.2.1" }
 solana-sdk = { version = "=2.2.1" }
 solana-sdk-ids = { version = "=2.2.1" }
 solana-svm-rent-collector = { version = "=2.2.1" }

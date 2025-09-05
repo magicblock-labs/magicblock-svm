@@ -4328,6 +4328,7 @@ dependencies = [
  "solana-pubkey",
  "solana-rent",
  "solana-rent-debits",
+ "solana-reserved-account-keys",
  "solana-sbpf",
  "solana-sdk",
  "solana-sdk-ids",
