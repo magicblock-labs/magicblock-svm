@@ -1,4 +1,4 @@
-use crate::account_loader::LoadedTransactionAccount;
+use crate::account_loader::{AccountsBalances, LoadedTransactionAccount};
 use crate::escrow::ephemeral_balance_pda_from_payer;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::{field_qualifiers, qualifiers};
@@ -85,6 +85,8 @@ pub struct LoadAndExecuteSanitizedTransactionsOutput {
     /// could not be processed. Note processed transactions can still have a
     /// failure result meaning that the transaction will be rolled back.
     pub processing_results: Vec<TransactionProcessingResult>,
+    /// A collection of observed balances before and after transaction execution
+    pub balances: AccountsBalances,
 }
 
 /// Configuration of the recording capabilities for transaction execution
@@ -128,6 +130,7 @@ pub struct TransactionProcessingConfig<'a> {
 }
 
 /// Runtime environment for transaction batch processing.
+#[derive(Clone)]
 pub struct TransactionProcessingEnvironment<'a> {
     /// The blockhash to use for the transaction batch.
     pub blockhash: Hash,
@@ -168,7 +171,7 @@ impl Default for TransactionProcessingEnvironment<'_> {
 )]
 pub struct TransactionBatchProcessor<FG: ForkGraph> {
     /// Bank slot (i.e. block)
-    slot: Slot,
+    pub slot: Slot,
 
     /// Bank epoch
     epoch: Epoch,
@@ -359,6 +362,11 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             program_accounts_map
         });
 
+        // Optimization, as we need to record account balances before
+        // and after transaction, we do it during the load->execute
+        // stage, as we already have an access to all of the accounts
+        let mut balances = AccountsBalances::default();
+
         let (mut program_cache_for_tx_batch, program_cache_us) = measure_us!({
             let program_cache_for_tx_batch = self.replenish_program_cache(
                 callbacks,
@@ -375,6 +383,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     processing_results: (0..sanitized_txs.len())
                         .map(|_| Err(TransactionError::ProgramCacheHitMaxLimit))
                         .collect(),
+                    balances,
                 };
             }
 
@@ -453,6 +462,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     }
                 }
                 TransactionLoadResult::Loaded(loaded_transaction) => {
+                    // observe all the account balances before executing the transaction
+                    balances
+                        .pre
+                        .extend(loaded_transaction.accounts.iter().map(|a| a.1.lamports()));
+                    // for the fee payer, which always comes frist, we need to add the
+                    // fee back, as it was deducted during the fee payer validation
+                    if let Some(fee_payer) = balances.pre.get_mut(0) {
+                        *fee_payer += loaded_transaction.fee_details.total_fee();
+                    }
                     let executed_tx = self.execute_loaded_transaction(
                         callbacks,
                         tx,
@@ -462,6 +480,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         &mut program_cache_for_tx_batch,
                         environment,
                         config,
+                    );
+                    // observe all the account balances after executing the transaction
+                    balances.post.extend(
+                        executed_tx
+                            .loaded_transaction
+                            .accounts
+                            .iter()
+                            .map(|a| a.1.lamports()),
                     );
 
                     // Update loaded accounts cache with account states which might have changed.
@@ -515,6 +541,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             error_metrics,
             execute_timings,
             processing_results,
+            balances,
         }
     }
 
@@ -583,12 +610,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut loaded_fee_payer = {
             // Load an account only if it exists *and* is delegated
-            let mut load_if_delegated_or_privileged = |addr: &Pubkey| -> Option<LoadedTransactionAccount> {
-                match account_loader.load_account(addr, true) {
-                    Some(acc) if acc.account.delegated() || acc.account.privileged() => Some(acc),
-                    _ => None,
-                }
-            };
+            let mut load_if_delegated_or_privileged =
+                |addr: &Pubkey| -> Option<LoadedTransactionAccount> {
+                    match account_loader.load_account(addr, true) {
+                        Some(acc) if acc.account.delegated() || acc.account.privileged() => {
+                            Some(acc)
+                        }
+                        _ => None,
+                    }
+                };
 
             // 1) Prefer the fee payer if delegated
             if let Some(acc) = load_if_delegated_or_privileged(&fee_payer_address) {
@@ -633,13 +663,18 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         };
 
         let fee_payer_index = 0;
+        let fees = if loaded_fee_payer.account.privileged() {
+            0
+        } else {
+            fee_details.total_fee()
+        };
         validate_fee_payer(
             &fee_payer_address,
             &mut loaded_fee_payer.account,
             fee_payer_index,
             error_counters,
             rent_collector,
-            fee_details.total_fee(),
+            fees,
         )?;
 
         // Capture fee-subtracted fee payer account and next nonce account state
@@ -1217,10 +1252,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn writable_sysvar_cache(&self) -> &RwLock<SysvarCache> {
         &self.sysvar_cache
-    }
-
-    pub fn set_slot(&mut self, slot: Slot) {
-        self.slot = slot
     }
 }
 
@@ -2269,7 +2300,7 @@ mod tests {
             SVMMessage::program_instructions_iter(&message),
             &FeatureSet::default(),
         )
-            .unwrap();
+        .unwrap();
         let fee_payer_address = message.fee_payer();
         let current_epoch = 42;
         let rent_collector = RentCollector {
@@ -2296,7 +2327,8 @@ mod tests {
             &Pubkey::default(),
             fee_payer_rent_epoch,
         );
-        let (_, mut borrowed_acc) = solana_account::test_utils::create_borrowed_account_shared_data(&fee_payer_account, 0);
+        let (_, mut borrowed_acc) =
+            solana_account::test_utils::create_borrowed_account_shared_data(&fee_payer_account, 0);
         borrowed_acc.as_borrowed_mut().unwrap().set_privileged(true);
         let fee_payer_account = borrowed_acc;
         let mut mock_accounts = HashMap::new();
