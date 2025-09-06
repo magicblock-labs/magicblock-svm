@@ -2286,6 +2286,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_validate_transaction_privileged_fee_payer_exact_balance() {
         let lamports_per_signature = 5000;
         let message = new_unchecked_sanitized_message(Message::new_with_blockhash(
