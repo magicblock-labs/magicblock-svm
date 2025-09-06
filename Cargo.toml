@@ -72,7 +72,7 @@ openssl = "0.10"
 prost = "0.11.9"
 rand0-7 = { package = "rand", version = "0.7" }
 shuttle = "0.7.1"
-solana-account = { version = "=2.2.1" }
+solana-account = { version = "=2.2.1", features = ["dev-context-only-utils"] }
 solana-clock = { version = "=2.2.1" }
 solana-compute-budget = { version = "=2.2.1", features = ["dev-context-only-utils"] }
 solana-compute-budget-interface = { version = "=2.2.1" }
@@ -92,7 +92,6 @@ solana-secp256r1-program = { version = "=2.2.1", features = ["openssl-vendored"]
 solana-signature = { version = "=2.2.1" }
 solana-signer = { version = "=2.2.1" }
 # See order-crates-for-publishing.py for using this unusual `path = "."`
-solana-svm = { path = ".", features = ["dev-context-only-utils"] }
 solana-svm-conformance = { version = "=2.2.1" }
 solana-system-program = { version = "=2.2.1" }
 solana-system-transaction = { version = "=2.2.1" }
@@ -100,6 +99,7 @@ solana-sysvar = { version = "=2.2.1" }
 solana-transaction = { version = "=2.2.1" }
 solana-transaction-context = { version = "=2.2.1", features = ["dev-context-only-utils" ] }
 test-case = "3.3.1"
+solana-svm = { path = ".", features = ["dev-context-only-utils"] }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -121,4 +121,4 @@ shuttle-test = [
 ]
 
 [patch.crates-io]
-solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "9a62efa" }
+solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "68b667f" }

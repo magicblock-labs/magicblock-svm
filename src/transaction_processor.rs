@@ -583,20 +583,20 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut loaded_fee_payer = {
             // Load an account only if it exists *and* is delegated
-            let mut load_if_delegated = |addr: &Pubkey| -> Option<LoadedTransactionAccount> {
+            let mut load_if_delegated_or_privileged = |addr: &Pubkey| -> Option<LoadedTransactionAccount> {
                 match account_loader.load_account(addr, true) {
-                    Some(acc) if acc.account.delegated() => Some(acc),
+                    Some(acc) if acc.account.delegated() || acc.account.privileged() => Some(acc),
                     _ => None,
                 }
             };
 
             // 1) Prefer the fee payer if delegated
-            if let Some(acc) = load_if_delegated(&fee_payer_address) {
+            if let Some(acc) = load_if_delegated_or_privileged(&fee_payer_address) {
                 acc
             } else {
                 // 2) Otherwise require escrow to exist and be delegated
                 let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
-                if let Some(acc) = load_if_delegated(&escrow_address) {
+                if let Some(acc) = load_if_delegated_or_privileged(&escrow_address) {
                     fee_payer_address = escrow_address;
                     acc
                 } else {
@@ -2205,6 +2205,100 @@ mod tests {
             fee_payer_rent_epoch,
         );
         fee_payer_account.set_delegated(true);
+        let mut mock_accounts = HashMap::new();
+        mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
+        let mock_bank = MockBankCallback {
+            account_shared_data: Arc::new(RwLock::new(mock_accounts)),
+            ..Default::default()
+        };
+        let mut account_loader = (&mock_bank).into();
+
+        let mut error_counters = TransactionErrorMetrics::default();
+        let result =
+            TransactionBatchProcessor::<TestForkGraph>::validate_transaction_nonce_and_fee_payer(
+                &mut account_loader,
+                &message,
+                CheckedTransactionDetails::new(None, lamports_per_signature),
+                &Hash::default(),
+                FeeStructure::default().lamports_per_signature,
+                &rent_collector,
+                &mut error_counters,
+                &mock_bank,
+            );
+
+        let post_validation_fee_payer_account = {
+            let mut account = fee_payer_account.clone();
+            account.set_rent_epoch(RENT_EXEMPT_RENT_EPOCH);
+            account.set_lamports(0);
+            account
+        };
+
+        assert_eq!(
+            result,
+            Ok(ValidatedTransactionDetails {
+                rollback_accounts: RollbackAccounts::new(
+                    None, // nonce
+                    *fee_payer_address,
+                    post_validation_fee_payer_account.clone(),
+                    fee_payer_rent_debit,
+                    fee_payer_rent_epoch
+                ),
+                compute_budget_limits,
+                fee_details: FeeDetails::new(transaction_fee, priority_fee),
+                loaded_fee_payer_account: LoadedTransactionAccount {
+                    loaded_size: fee_payer_account.data().len(),
+                    account: post_validation_fee_payer_account,
+                    rent_collected: fee_payer_rent_debit,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_privileged_fee_payer_exact_balance() {
+        let lamports_per_signature = 5000;
+        let message = new_unchecked_sanitized_message(Message::new_with_blockhash(
+            &[
+                ComputeBudgetInstruction::set_compute_unit_limit(2000u32),
+                ComputeBudgetInstruction::set_compute_unit_price(1_000_000_000),
+            ],
+            Some(&Pubkey::new_unique()),
+            &Hash::new_unique(),
+        ));
+        let compute_budget_limits = process_compute_budget_instructions(
+            SVMMessage::program_instructions_iter(&message),
+            &FeatureSet::default(),
+        )
+            .unwrap();
+        let fee_payer_address = message.fee_payer();
+        let current_epoch = 42;
+        let rent_collector = RentCollector {
+            epoch: current_epoch,
+            ..RentCollector::default()
+        };
+        let min_balance = rent_collector
+            .rent
+            .minimum_balance(nonce::state::State::size());
+        let transaction_fee = lamports_per_signature;
+        let priority_fee = 2_000_000u64;
+        let starting_balance = transaction_fee + priority_fee;
+        assert!(
+            starting_balance > min_balance,
+            "we're testing that a rent exempt fee payer can be fully drained, \
+        so ensure that the starting balance is more than the min balance"
+        );
+
+        let fee_payer_rent_epoch = current_epoch;
+        let fee_payer_rent_debit = 0;
+        let fee_payer_account = AccountSharedData::new_rent_epoch(
+            starting_balance,
+            0,
+            &Pubkey::default(),
+            fee_payer_rent_epoch,
+        );
+        let (_, mut borrowed_acc) = solana_account::test_utils::create_borrowed_account_shared_data(&fee_payer_account, 0);
+        borrowed_acc.as_borrowed_mut().unwrap().set_privileged(true);
+        let fee_payer_account = borrowed_acc;
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
