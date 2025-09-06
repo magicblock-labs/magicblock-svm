@@ -2286,7 +2286,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_validate_transaction_privileged_fee_payer_exact_balance() {
         let lamports_per_signature = 5000;
         let message = new_unchecked_sanitized_message(Message::new_with_blockhash(
@@ -2328,7 +2327,7 @@ mod tests {
             &Pubkey::default(),
             fee_payer_rent_epoch,
         );
-        let (_, mut borrowed_acc) =
+        let (_guard, mut borrowed_acc) =
             solana_account::test_utils::create_borrowed_account_shared_data(&fee_payer_account, 0);
         borrowed_acc.as_borrowed_mut().unwrap().set_privileged(true);
         let fee_payer_account = borrowed_acc;
