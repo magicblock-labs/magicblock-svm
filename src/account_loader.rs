@@ -216,6 +216,8 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
         }
     }
 
+    /// If the fee payer is delegated, use it. Otherwise, load the escrow
+    /// account if delegated
     pub(crate) fn effective_fee_payer_address_for_failed_tx(
         &mut self,
         message: &impl SVMMessage,
@@ -227,9 +229,11 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
                 .map(|acc| acc.account.delegated())
                 .unwrap_or(false)
         };
+        // If the fee payer is delegated, use it
         if is_delegated(&fee_payer_address) {
             return fee_payer_address;
         }
+        // Otherwise, load the escrow account if delegated
         let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
         if is_delegated(&escrow_address) {
             return escrow_address;

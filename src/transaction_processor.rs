@@ -609,7 +609,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let mut fee_payer_address = *message.fee_payer();
 
         let mut loaded_fee_payer = {
-            // Load an account only if it exists *and* is delegated
+            // Load an account only if it exists *and* is delegated or privileged.
             let mut load_if_delegated_or_privileged =
                 |addr: &Pubkey| -> Option<LoadedTransactionAccount> {
                     match account_loader.load_account(addr, true) {
@@ -663,6 +663,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         };
 
         let fee_payer_index = 0;
+        // If the fee payer is privileged, it's exempt from fees.
         let fees = if loaded_fee_payer.account.privileged() {
             0
         } else {
