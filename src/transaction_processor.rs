@@ -612,7 +612,12 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             // Load an account only if it exists *and* is delegated or privileged.
             let mut load_if_delegated_or_privileged =
                 |addr: &Pubkey| -> Option<LoadedTransactionAccount> {
-                    match account_loader.load_account(addr, true) {
+              let mut load_if_delegated_or_privileged = |addr| {
+                account_loader
+                    .load_account(addr, true)
+                    .filter(|acc| acc.account.delegated() || acc.account.privileged())
+            };
+
                         Some(acc) if acc.account.delegated() || acc.account.privileged() => {
                             Some(acc)
                         }
