@@ -689,6 +689,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             rollback_accounts,
             compute_budget_limits,
             loaded_fee_payer_account: loaded_fee_payer,
+            fee_payer_address,
         })
     }
 
@@ -2278,6 +2279,7 @@ mod tests {
                     account: post_validation_fee_payer_account,
                     rent_collected: fee_payer_rent_debit,
                 },
+                fee_payer_address: *fee_payer_address,
             })
         );
     }
@@ -2373,6 +2375,7 @@ mod tests {
                     account: post_validation_fee_payer_account,
                     rent_collected: fee_payer_rent_debit,
                 },
+                fee_payer_address: *fee_payer_address,
             })
         );
     }
@@ -2451,7 +2454,8 @@ mod tests {
                     loaded_size: fee_payer_account.data().len(),
                     account: post_validation_fee_payer_account,
                     rent_collected: fee_payer_rent_debit,
-                }
+                },
+                fee_payer_address: *fee_payer_address,
             })
         );
     }
@@ -2709,7 +2713,8 @@ mod tests {
                         loaded_size: fee_payer_account.data().len(),
                         account: post_validation_fee_payer_account,
                         rent_collected: 0,
-                    }
+                    },
+                    fee_payer_address: *fee_payer_address,
                 })
             );
         }
