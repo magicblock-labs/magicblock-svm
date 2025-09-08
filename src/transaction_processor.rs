@@ -1,4 +1,4 @@
-use crate::account_loader::AccountsBalances;
+use crate::account_loader::{AccountsBalances, LoadedTransactionAccount};
 use crate::escrow::ephemeral_balance_pda_from_payer;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::{field_qualifiers, qualifiers};
@@ -608,27 +608,32 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut fee_payer_address = *message.fee_payer();
 
-        let mut loaded_fee_payer = {
-            // Load an account only if it exists *and* is delegated or privileged.
-            let mut load_if_delegated_or_privileged = |addr: &Pubkey| {
-                account_loader
-                    .load_account(addr, true)
-                    .filter(|acc| acc.account.delegated() || acc.account.privileged())
-            };
+        let initial_loaded = account_loader.load_account(&fee_payer_address, true);
 
-            // 1) Prefer the fee payer if delegated
-            if let Some(acc) = load_if_delegated_or_privileged(&fee_payer_address) {
+        // zero-fee: short-circuit with an empty account, no delegation required, only if the account doesn't exist
+        let mut loaded_fee_payer = if fee_lamports_per_signature == 0 && initial_loaded.is_none() {
+            LoadedTransactionAccount {
+                account: AccountSharedData::default(),
+                loaded_size: 0,
+                rent_collected: 0,
+            }
+        } else if let Some(acc) =
+            initial_loaded.filter(|acc| acc.account.delegated() || acc.account.privileged())
+        {
+            // prefer the fee payer if delegated/privileged
+            acc
+        } else {
+            // otherwise require escrow to exist and be delegated/privileged
+            let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
+            if let Some(acc) = account_loader
+                .load_account(&escrow_address, true)
+                .filter(|acc| acc.account.delegated() || acc.account.privileged())
+            {
+                fee_payer_address = escrow_address;
                 acc
             } else {
-                // 2) Otherwise require escrow to exist and be delegated
-                let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
-                if let Some(acc) = load_if_delegated_or_privileged(&escrow_address) {
-                    fee_payer_address = escrow_address;
-                    acc
-                } else {
-                    error_counters.invalid_account_for_fee += 1;
-                    return Err(TransactionError::InvalidAccountForFee);
-                }
+                error_counters.invalid_account_for_fee += 1;
+                return Err(TransactionError::InvalidAccountForFee);
             }
         };
 
