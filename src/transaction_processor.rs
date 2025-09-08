@@ -1,4 +1,4 @@
-use crate::account_loader::{AccountsBalances, LoadedTransactionAccount};
+use crate::account_loader::{AccountsBalances};
 use crate::escrow::ephemeral_balance_pda_from_payer;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::{field_qualifiers, qualifiers};
@@ -610,20 +610,11 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut loaded_fee_payer = {
             // Load an account only if it exists *and* is delegated or privileged.
-            let mut load_if_delegated_or_privileged =
-                |addr: &Pubkey| -> Option<LoadedTransactionAccount> {
-              let mut load_if_delegated_or_privileged = |addr| {
+            let mut load_if_delegated_or_privileged = |addr: &Pubkey| {
                 account_loader
                     .load_account(addr, true)
                     .filter(|acc| acc.account.delegated() || acc.account.privileged())
             };
-
-                        Some(acc) if acc.account.delegated() || acc.account.privileged() => {
-                            Some(acc)
-                        }
-                        _ => None,
-                    }
-                };
 
             // 1) Prefer the fee payer if delegated
             if let Some(acc) = load_if_delegated_or_privileged(&fee_payer_address) {
