@@ -13,18 +13,26 @@ impl LoadedTransaction {
     /// validator node.
     ///
     /// ## Logic
-    /// This function enforces a simple rule: **any account marked as writable,
-    /// excluding the fee payer, must be a delegated account.**
+    /// This function enforces a security rule with a key exception: **if the fee payer
+    /// has privileged access, this check is bypassed entirely.**
     ///
-    /// It iterates through the transaction's accounts, skipping the fee payer (index 0),
-    /// which is validated separately. For each remaining account, if it is marked
-    /// as writable in the message but is not delegated, the transaction is rejected.
-    /// Read-only accounts are ignored.
+    /// For standard, non-privileged transactions, it enforces that **any account
+    /// marked as writable (excluding the fee payer) must be a delegated account.**
+    ///
+    /// Read-only accounts are ignored. The fee payer's writability is handled in
+    /// separate validation logic.
     pub(crate) fn validate_accounts_access(
         &self,
         message: &impl SVMMessage,
     ) -> TransactionResult<()> {
-        // Skip the fee payer (index 0), as it's validated elsewhere.
+        let payer = self.accounts.first().map(|(_, acc)| acc);
+        if payer.map(|p| p.privileged()).unwrap_or_default() {
+            // Payer has privileged access, so we can skip the validation.
+            return Ok(());
+        }
+
+        // For non-privileged payers, validate the rest of the accounts.
+        // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (_, acc)) in self.accounts.iter().enumerate().skip(1) {
             // Enforce that any account intended to be writable must be a delegated account.
             if message.is_writable(i) && !acc.delegated() {
