@@ -462,6 +462,17 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     }
                 }
                 TransactionLoadResult::Loaded(loaded_transaction) => {
+                    // This transaction loaded all its accounts successfully. Now, we must
+                    // perform the security check to ensure any *writable* accounts
+                    // (excluding the fee payer) are delegated accounts.
+                    //
+                    // This check is unnecessary for other load results (like `FeesOnly`),
+                    // as those states imply the transaction failed to load these other accounts,
+                    // and the fee payer is validated separately.
+                    if let Err(err) = loaded_transaction.validate_accounts_access(tx) {
+                        processing_results.push(Err(err));
+                        continue;
+                    }
                     // observe all the account balances before executing the transaction
                     balances
                         .pre
