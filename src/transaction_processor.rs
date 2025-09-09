@@ -610,31 +610,33 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let initial_loaded = account_loader.load_account(&fee_payer_address, true);
 
-        // zero-fee: short-circuit with an empty account, no delegation required, only if the account doesn't exist
-        let mut loaded_fee_payer = if fee_lamports_per_signature == 0 && initial_loaded.is_none() {
-            LoadedTransactionAccount {
+        let is_delegated_or_privileged =
+            |acc: &LoadedTransactionAccount| acc.account.delegated() || acc.account.privileged();
+
+        let mut loaded_fee_payer = if fee_lamports_per_signature == 0 {
+            // zero-fee: use provided account if any, otherwise an empty default
+            initial_loaded.unwrap_or_else(|| LoadedTransactionAccount {
                 account: AccountSharedData::default(),
                 loaded_size: 0,
                 rent_collected: 0,
-            }
-        } else if let Some(acc) =
-            initial_loaded.filter(|acc| acc.account.delegated() || acc.account.privileged())
-        {
-            // prefer the fee payer if delegated/privileged
-            acc
+            })
         } else {
-            // otherwise require escrow to exist and be delegated/privileged
-            let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
-            if let Some(acc) = account_loader
-                .load_account(&escrow_address, true)
-                .filter(|acc| acc.account.delegated() || acc.account.privileged())
-            {
-                fee_payer_address = escrow_address;
-                acc
-            } else {
-                error_counters.invalid_account_for_fee += 1;
-                return Err(TransactionError::InvalidAccountForFee);
-            }
+            initial_loaded
+                .filter(is_delegated_or_privileged)
+                .or_else(|| {
+                    let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
+                    account_loader
+                        .load_account(&escrow_address, true)
+                        .filter(is_delegated_or_privileged)
+                        .map(|acc| {
+                            fee_payer_address = escrow_address;
+                            acc
+                        })
+                })
+                .ok_or_else(|| {
+                    error_counters.invalid_account_for_fee += 1;
+                    TransactionError::InvalidAccountForFee
+                })?
         };
 
         let fee_payer_loaded_rent_epoch = loaded_fee_payer.account.rent_epoch();
