@@ -80,6 +80,7 @@ pub(crate) struct ValidatedTransactionDetails {
     pub(crate) compute_budget_limits: ComputeBudgetLimits,
     pub(crate) fee_details: FeeDetails,
     pub(crate) loaded_fee_payer_account: LoadedTransactionAccount,
+    pub(crate) fee_payer_address: Pubkey,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -208,21 +209,48 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
                 &executed_transaction.loaded_transaction.accounts,
             );
         } else {
+            let fee_payer_address = self.effective_fee_payer_address_for_failed_tx(message);
             self.update_accounts_for_failed_tx(
-                message,
                 &executed_transaction.loaded_transaction.rollback_accounts,
+                &fee_payer_address,
             );
         }
     }
 
-    pub(crate) fn update_accounts_for_failed_tx(
+    /// If the fee payer is delegated, use it. Otherwise, load the escrow
+    /// account if delegated
+    pub(crate) fn effective_fee_payer_address_for_failed_tx(
         &mut self,
         message: &impl SVMMessage,
+    ) -> Pubkey {
+        use crate::escrow::ephemeral_balance_pda_from_payer;
+        let fee_payer_address = *message.fee_payer();
+        let mut is_delegated = |addr: &Pubkey| -> bool {
+            self.load_account(addr, true)
+                .map(|acc| acc.account.delegated())
+                .unwrap_or(false)
+        };
+        // If the fee payer is delegated, use it
+        if is_delegated(&fee_payer_address) {
+            return fee_payer_address;
+        }
+        // Otherwise, load the escrow account if delegated
+        let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
+        if is_delegated(&escrow_address) {
+            return escrow_address;
+        }
+        fee_payer_address
+    }
+
+    pub(crate) fn update_accounts_for_failed_tx(
+        &mut self,
         rollback_accounts: &RollbackAccounts,
+        fee_payer_address: &Pubkey,
     ) {
-        let fee_payer_address = message.fee_payer();
         match rollback_accounts {
-            RollbackAccounts::FeePayerOnly { fee_payer_account } => {
+            RollbackAccounts::FeePayerOnly {
+                fee_payer_account, ..
+            } => {
                 self.account_cache
                     .insert(*fee_payer_address, fee_payer_account.clone());
             }
@@ -233,6 +261,7 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
             RollbackAccounts::SeparateNonceAndFeePayer {
                 nonce,
                 fee_payer_account,
+                ..
             } => {
                 self.account_cache
                     .insert(*nonce.address(), nonce.account().clone());
@@ -360,6 +389,7 @@ pub(crate) fn load_transaction<CB: TransactionProcessingCallback>(
             let load_result = load_transaction_accounts(
                 account_loader,
                 message,
+                &tx_details.fee_payer_address,
                 tx_details.loaded_fee_payer_account,
                 &tx_details.compute_budget_limits,
                 error_metrics,
@@ -399,6 +429,7 @@ struct LoadedTransactionAccounts {
 fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     account_loader: &mut AccountLoader<CB>,
     message: &impl SVMMessage,
+    fee_payer_address: &Pubkey,
     loaded_fee_payer_account: LoadedTransactionAccount,
     compute_budget_limits: &ComputeBudgetLimits,
     error_metrics: &mut TransactionErrorMetrics,
@@ -434,7 +465,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
 
     // Since the fee payer is always the first account, collect it first.
     // We can use it directly because it was already loaded during validation.
-    collect_loaded_account(message.fee_payer(), loaded_fee_payer_account)?;
+    collect_loaded_account(fee_payer_address, loaded_fee_payer_account)?;
 
     // Attempt to load and collect remaining non-fee payer accounts
     for (account_index, account_key) in account_keys.iter().enumerate().skip(1) {
@@ -1043,10 +1074,26 @@ mod tests {
             Arc::new(FeatureSet::all_enabled()),
             0,
         );
+        // Build proper ValidatedTransactionDetails with real fee payer
+        let fee_payer = *tx.message().fee_payer();
+        // In some tests we don't pass actual accounts; default to a zeroed account for fee payer
+        let fee_payer_account = callbacks
+            .accounts_map
+            .get(&fee_payer)
+            .cloned()
+            .unwrap_or_else(|| AccountSharedData::default());
+        let validation_details = ValidatedTransactionDetails {
+            fee_payer_address: fee_payer,
+            loaded_fee_payer_account: LoadedTransactionAccount {
+                account: fee_payer_account,
+                ..LoadedTransactionAccount::default()
+            },
+            ..ValidatedTransactionDetails::default()
+        };
         load_transaction(
             &mut account_loader,
             &tx,
-            Ok(ValidatedTransactionDetails::default()),
+            Ok(validation_details),
             &mut error_metrics,
             &RentCollector::default(),
         )
@@ -1205,8 +1252,11 @@ mod tests {
             }
         }
 
-        // If payer account has no balance, expected AccountNotFound Error
+        // If payer account has no balance, expected InsufficientFundsForFee Error
         // regardless feature gate status, or if payer is nonce account.
+        // NOTE: solana svm returns AccountNotFound, but since we support not existing (signer)
+        // accounts as fee payer (when validator fees = 0), we return InsufficientFundsForFee
+        // instead.
         {
             for is_nonce in [true, false] {
                 validate_fee_payer_account(
@@ -1214,7 +1264,7 @@ mod tests {
                         is_nonce,
                         payer_init_balance: 0,
                         fee,
-                        expected_result: Err(TransactionError::AccountNotFound),
+                        expected_result: Err(TransactionError::InsufficientFundsForFee),
                         payer_post_balance: 0,
                     },
                     &rent_collector,
@@ -1331,6 +1381,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &fee_payer_address,
             LoadedTransactionAccount {
                 loaded_size: fee_payer_account.data().len(),
                 account: fee_payer_account.clone(),
@@ -1394,6 +1445,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &key1.pubkey(),
             LoadedTransactionAccount {
                 account: fee_payer_account.clone(),
                 ..LoadedTransactionAccount::default()
@@ -1454,6 +1506,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &key1.pubkey(),
             LoadedTransactionAccount::default(),
             &ComputeBudgetLimits::default(),
             &mut error_metrics,
@@ -1496,6 +1549,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &key1.pubkey(),
             LoadedTransactionAccount::default(),
             &ComputeBudgetLimits::default(),
             &mut error_metrics,
@@ -1549,6 +1603,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &key2.pubkey(),
             LoadedTransactionAccount {
                 account: fee_payer_account.clone(),
                 ..LoadedTransactionAccount::default()
@@ -1613,6 +1668,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &key2.pubkey(),
             LoadedTransactionAccount::default(),
             &ComputeBudgetLimits::default(),
             &mut error_metrics,
@@ -1665,6 +1721,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &key2.pubkey(),
             LoadedTransactionAccount::default(),
             &ComputeBudgetLimits::default(),
             &mut error_metrics,
@@ -1725,6 +1782,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &key2.pubkey(),
             LoadedTransactionAccount {
                 account: fee_payer_account.clone(),
                 ..LoadedTransactionAccount::default()
@@ -1808,6 +1866,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mut account_loader,
             sanitized_transaction.message(),
+            &key2.pubkey(),
             LoadedTransactionAccount {
                 account: fee_payer_account.clone(),
                 ..LoadedTransactionAccount::default()
@@ -1960,6 +2019,7 @@ mod tests {
                 account: fee_payer_account,
                 ..LoadedTransactionAccount::default()
             },
+            fee_payer_address: key2.pubkey(),
             ..ValidatedTransactionDetails::default()
         });
 
@@ -2321,6 +2381,7 @@ mod tests {
             let loaded_transaction_accounts = load_transaction_accounts(
                 &mut account_loader,
                 &transaction,
+                &fee_payer,
                 LoadedTransactionAccount {
                     account: fee_payer_account.clone(),
                     loaded_size: fee_payer_size as usize,

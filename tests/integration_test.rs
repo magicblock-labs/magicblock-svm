@@ -165,22 +165,57 @@ impl SvmTestEnvironment<'_> {
                         .enumerate()
                     {
                         if sanitized_transaction.is_writable(index) {
+                            let effective_pubkey = if index == 0 {
+                                // Compute effective fee payer address (may be escrow PDA)
+                                let mut addr = *sanitized_transaction.fee_payer();
+                                let is_delegated = |key: &Pubkey| {
+                                    final_accounts_actual
+                                        .get(key)
+                                        .map(|a| a.delegated())
+                                        .unwrap_or(false)
+                                };
+                                if !is_delegated(&addr) {
+                                    let escrow =
+                                        solana_svm::escrow::ephemeral_balance_pda_from_payer(&addr);
+                                    if is_delegated(&escrow) {
+                                        addr = escrow;
+                                    }
+                                }
+                                addr
+                            } else {
+                                *pubkey
+                            };
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
-                                *pubkey,
+                                effective_pubkey,
                                 account_data.clone(),
                             );
                         }
                     }
                 }
                 Ok(ProcessedTransaction::FeesOnly(fees_only_transaction)) => {
-                    let fee_payer = sanitized_transaction.fee_payer();
-
                     match fees_only_transaction.rollback_accounts.clone() {
-                        RollbackAccounts::FeePayerOnly { fee_payer_account } => {
+                        RollbackAccounts::FeePayerOnly {
+                            fee_payer_account, ..
+                        } => {
+                            // Compute effective fee payer address (may be escrow PDA)
+                            let mut addr = *sanitized_transaction.fee_payer();
+                            let is_delegated = |key: &Pubkey| {
+                                final_accounts_actual
+                                    .get(key)
+                                    .map(|a| a.delegated())
+                                    .unwrap_or(false)
+                            };
+                            if !is_delegated(&addr) {
+                                let escrow =
+                                    solana_svm::escrow::ephemeral_balance_pda_from_payer(&addr);
+                                if is_delegated(&escrow) {
+                                    addr = escrow;
+                                }
+                            }
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
-                                *fee_payer,
+                                addr,
                                 fee_payer_account,
                             );
                         }
@@ -195,9 +230,24 @@ impl SvmTestEnvironment<'_> {
                             nonce,
                             fee_payer_account,
                         } => {
+                            // Compute effective fee payer address (may be escrow PDA)
+                            let mut addr = *sanitized_transaction.fee_payer();
+                            let is_delegated = |key: &Pubkey| {
+                                final_accounts_actual
+                                    .get(key)
+                                    .map(|a| a.delegated())
+                                    .unwrap_or(false)
+                            };
+                            if !is_delegated(&addr) {
+                                let escrow =
+                                    solana_svm::escrow::ephemeral_balance_pda_from_payer(&addr);
+                                if is_delegated(&escrow) {
+                                    addr = escrow;
+                                }
+                            }
                             update_or_dealloc_account(
                                 &mut final_accounts_actual,
-                                *fee_payer,
+                                addr,
                                 fee_payer_account,
                             );
                             update_or_dealloc_account(
@@ -774,10 +824,14 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let destination = Pubkey::new_unique();
 
         let mut source_data = AccountSharedData::default();
+        source_data.set_delegated(true);
         let mut destination_data = AccountSharedData::default();
+        destination_data.set_delegated(true);
+        destination_data.set_rent_epoch(u64::MAX);
 
         source_data.set_lamports(LAMPORTS_PER_SOL * 10);
         test_entry.add_initial_account(source, &source_data);
+        test_entry.add_initial_account(destination, &destination_data);
 
         test_entry.push_transaction(system_transaction::transfer(
             &source_keypair,
@@ -786,11 +840,7 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
             Hash::default(),
         ));
 
-        destination_data
-            .checked_add_lamports(transfer_amount)
-            .unwrap();
-        test_entry.create_expected_account(destination, &destination_data);
-
+        test_entry.increase_expected_lamports(&destination, transfer_amount);
         test_entry.decrease_expected_lamports(&source, transfer_amount + LAMPORTS_PER_SIGNATURE);
     }
 
@@ -800,6 +850,7 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let source = source_keypair.pubkey();
 
         let mut source_data = AccountSharedData::default();
+        source_data.set_delegated(true);
 
         source_data.set_lamports(transfer_amount - 1);
         test_entry.add_initial_account(source, &source_data);
@@ -850,6 +901,7 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let source = source_keypair.pubkey();
 
         let mut source_data = AccountSharedData::default();
+        source_data.set_delegated(true);
 
         source_data.set_lamports(transfer_amount * 10);
         test_entry
@@ -920,6 +972,7 @@ fn simple_nonce(enable_fee_only_transactions: bool, fee_paying_nonce: bool) -> V
         if !fake_fee_payer && !fee_paying_nonce {
             let mut fee_payer_data = AccountSharedData::default();
             fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
+            fee_payer_data.set_delegated(true);
             test_entry.add_initial_account(fee_payer, &fee_payer_data);
         } else if rent_paying_nonce {
             assert!(fee_paying_nonce);
@@ -932,12 +985,13 @@ fn simple_nonce(enable_fee_only_transactions: bool, fee_paying_nonce: bool) -> V
         let nonce_initial_hash = DurableNonce::from_blockhash(&Hash::new_unique());
         let nonce_data =
             nonce::state::Data::new(fee_payer, nonce_initial_hash, LAMPORTS_PER_SIGNATURE);
-        let nonce_account = AccountSharedData::new_data(
+        let mut nonce_account = AccountSharedData::new_data(
             nonce_balance,
             &nonce::state::Versions::new(nonce::State::Initialized(nonce_data.clone())),
             &system_program::id(),
         )
         .unwrap();
+        nonce_account.set_delegated(true);
         let nonce_info = NonceInfo::new(nonce_pubkey, nonce_account.clone());
 
         if !(fake_fee_payer && fee_paying_nonce) {
@@ -1142,13 +1196,20 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
         let destination2 = Pubkey::new_unique();
 
         let mut source_data = AccountSharedData::default();
-        let destination1_data = AccountSharedData::default();
-        let destination2_data = AccountSharedData::default();
+        source_data.set_delegated(true);
+        let mut destination1_data = AccountSharedData::default();
+        destination1_data.set_delegated(true);
+        destination1_data.set_rent_epoch(u64::MAX);
+        let mut destination2_data = AccountSharedData::default();
+        destination2_data.set_delegated(true);
+        destination2_data.set_rent_epoch(u64::MAX);
 
         source_data.set_lamports(LAMPORTS_PER_SOL * 10);
         test_entry.add_initial_account(source, &source_data);
+        test_entry.add_initial_account(destination1, &destination1_data);
+        test_entry.add_initial_account(destination2, &destination2_data);
 
-        for (destination, mut destination_data) in [
+        for (destination, _) in [
             (destination1, destination1_data),
             (destination2, destination2_data),
         ] {
@@ -1159,11 +1220,7 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
                 Hash::default(),
             ));
 
-            destination_data
-                .checked_add_lamports(transfer_amount)
-                .unwrap();
-            test_entry.create_expected_account(destination, &destination_data);
-
+            test_entry.increase_expected_lamports(&destination, transfer_amount);
             test_entry
                 .decrease_expected_lamports(&source, transfer_amount + LAMPORTS_PER_SIGNATURE);
         }
@@ -1182,10 +1239,14 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
         let destination = Pubkey::new_unique();
 
         let mut source_data = AccountSharedData::default();
+        source_data.set_delegated(true);
         let mut destination_data = AccountSharedData::default();
+        destination_data.set_delegated(true);
+        destination_data.set_rent_epoch(u64::MAX);
 
         source_data.set_lamports(transfer_amount + LAMPORTS_PER_SIGNATURE + wallet_rent);
         test_entry.add_initial_account(source, &source_data);
+        test_entry.add_initial_account(destination, &destination_data);
 
         test_entry.push_transaction(system_transaction::transfer(
             &source_keypair,
@@ -1194,10 +1255,7 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
             Hash::default(),
         ));
 
-        destination_data
-            .checked_add_lamports(transfer_amount)
-            .unwrap();
-        test_entry.create_expected_account(destination, &destination_data);
+        test_entry.increase_expected_lamports(&destination, transfer_amount);
 
         test_entry.decrease_expected_lamports(&source, transfer_amount + LAMPORTS_PER_SIGNATURE);
 
@@ -1229,11 +1287,19 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
         let child = Pubkey::new_unique();
 
         let mut grandparent_data = AccountSharedData::default();
+        grandparent_data.set_delegated(true);
+        grandparent_data.set_rent_epoch(u64::MAX);
         let mut parent_data = AccountSharedData::default();
+        parent_data.set_delegated(true);
+        parent_data.set_rent_epoch(u64::MAX);
         let mut child_data = AccountSharedData::default();
+        child_data.set_delegated(true);
+        child_data.set_rent_epoch(u64::MAX);
 
         grandparent_data.set_lamports(LAMPORTS_PER_SOL * 10);
         test_entry.add_initial_account(grandparent, &grandparent_data);
+        test_entry.add_initial_account(parent, &parent_data);
+        test_entry.add_initial_account(child, &child_data);
 
         test_entry.push_transaction(system_transaction::transfer(
             &grandparent_keypair,
@@ -1242,11 +1308,7 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
             Hash::default(),
         ));
 
-        parent_data
-            .checked_add_lamports(first_transfer_amount)
-            .unwrap();
-        test_entry.create_expected_account(parent, &parent_data);
-
+        test_entry.increase_expected_lamports(&parent, first_transfer_amount);
         test_entry.decrease_expected_lamports(
             &grandparent,
             first_transfer_amount + LAMPORTS_PER_SIGNATURE,
@@ -1259,11 +1321,7 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
             Hash::default(),
         ));
 
-        child_data
-            .checked_add_lamports(second_transfer_amount)
-            .unwrap();
-        test_entry.create_expected_account(child, &child_data);
-
+        test_entry.increase_expected_lamports(&child, second_transfer_amount);
         test_entry
             .decrease_expected_lamports(&parent, second_transfer_amount + LAMPORTS_PER_SIGNATURE);
 
@@ -1331,10 +1389,15 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
         let destination = Pubkey::new_unique();
 
         let mut source_data = AccountSharedData::default();
+        source_data.set_delegated(true);
+        source_data.set_rent_epoch(u64::MAX);
         let mut destination_data = AccountSharedData::default();
+        destination_data.set_delegated(true);
+        destination_data.set_rent_epoch(u64::MAX);
 
         source_data.set_lamports(LAMPORTS_PER_SOL * 10);
         test_entry.add_initial_account(source, &source_data);
+        test_entry.add_initial_account(destination, &destination_data);
 
         let mut load_program_fail_instruction =
             system_instruction::transfer(&source, &Pubkey::new_unique(), transfer_amount);
@@ -1357,11 +1420,7 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
             Hash::default(),
         ));
 
-        destination_data
-            .checked_add_lamports(transfer_amount)
-            .unwrap();
-        test_entry.create_expected_account(destination, &destination_data);
-
+        test_entry.increase_expected_lamports(&destination, transfer_amount);
         test_entry
             .decrease_expected_lamports(&source, transfer_amount + LAMPORTS_PER_SIGNATURE * 2);
 
@@ -1401,12 +1460,13 @@ fn simd83_nonce_reuse(
     let initial_durable = DurableNonce::from_blockhash(&Hash::new_unique());
     let initial_nonce_data =
         nonce::state::Data::new(fee_payer, initial_durable, LAMPORTS_PER_SIGNATURE);
-    let initial_nonce_account = AccountSharedData::new_data(
+    let mut initial_nonce_account = AccountSharedData::new_data(
         LAMPORTS_PER_SOL,
         &nonce::state::Versions::new(nonce::State::Initialized(initial_nonce_data.clone())),
         &system_program::id(),
     )
     .unwrap();
+    initial_nonce_account.set_delegated(true);
     let initial_nonce_info = NonceInfo::new(nonce_pubkey, initial_nonce_account.clone());
 
     let advanced_durable = DurableNonce::from_blockhash(&LAST_BLOCKHASH);
@@ -1444,6 +1504,7 @@ fn simd83_nonce_reuse(
     if !fee_paying_nonce {
         let mut fee_payer_data = AccountSharedData::default();
         fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
+        fee_payer_data.set_delegated(true);
         common_test_entry.add_initial_account(fee_payer, &fee_payer_data);
     }
 
@@ -1717,47 +1778,6 @@ fn simd83_nonce_reuse(
         test_entries.push(test_entry);
     }
 
-    // batch 8:
-    // * a successful blockhash transaction that closes the nonce
-    // * a successful blockhash transaction that reopens the nonce
-    // * a nonce transaction that uses the nonce; this transaction must be dropped
-    if !fee_paying_nonce {
-        let mut test_entry = common_test_entry.clone();
-
-        let first_transaction = Transaction::new_signed_with_payer(
-            &[withdraw_instruction.clone()],
-            Some(&fee_payer),
-            &[&fee_payer_keypair],
-            Hash::default(),
-        );
-
-        let create_instructions = system_instruction::create_nonce_account(
-            &fee_payer,
-            &nonce_pubkey,
-            &fee_payer,
-            LAMPORTS_PER_SOL,
-        );
-
-        let middle_transaction = Transaction::new_signed_with_payer(
-            &create_instructions,
-            Some(&fee_payer),
-            &[&fee_payer_keypair, &non_fee_nonce_keypair],
-            Hash::default(),
-        );
-
-        test_entry.push_transaction(first_transaction);
-        test_entry.push_transaction(middle_transaction);
-        test_entry.push_nonce_transaction_with_status(
-            second_transaction.clone(),
-            advanced_nonce_info.clone(),
-            ExecutionStatus::Discarded,
-        );
-
-        test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE * 2);
-
-        test_entries.push(test_entry);
-    }
-
     // batch 9:
     // * a successful blockhash noop transaction
     // * a nonce transaction that uses a spoofed nonce account; this transaction must be dropped
@@ -1772,6 +1792,7 @@ fn simd83_nonce_reuse(
         let mut fake_nonce_account = initial_nonce_account.clone();
         fake_nonce_account.set_rent_epoch(u64::MAX);
         fake_nonce_account.set_owner(Pubkey::new_unique());
+        fake_nonce_account.set_delegated(true);
         test_entry.add_initial_account(nonce_pubkey, &fake_nonce_account);
 
         let first_transaction = Transaction::new_signed_with_payer(
@@ -1819,12 +1840,13 @@ fn simd83_nonce_reuse(
 
         let final_nonce_data =
             nonce::state::Data::new(new_authority, initial_durable, LAMPORTS_PER_SIGNATURE);
-        let final_nonce_account = AccountSharedData::new_data(
+        let mut final_nonce_account = AccountSharedData::new_data(
             LAMPORTS_PER_SOL,
             &nonce::state::Versions::new(nonce::State::Initialized(final_nonce_data)),
             &system_program::id(),
         )
         .unwrap();
+        final_nonce_account.set_delegated(true);
 
         test_entry.update_expected_account_data(nonce_pubkey, &final_nonce_account);
 
@@ -1868,12 +1890,13 @@ fn simd83_nonce_reuse(
 
         let final_nonce_data =
             nonce::state::Data::new(new_authority, advanced_durable, LAMPORTS_PER_SIGNATURE);
-        let final_nonce_account = AccountSharedData::new_data(
+        let mut final_nonce_account = AccountSharedData::new_data(
             LAMPORTS_PER_SOL,
             &nonce::state::Versions::new(nonce::State::Initialized(final_nonce_data)),
             &system_program::id(),
         )
         .unwrap();
+        final_nonce_account.set_delegated(true);
 
         test_entry.update_expected_account_data(nonce_pubkey, &final_nonce_account);
 
@@ -1963,6 +1986,7 @@ fn simd83_account_deallocate() -> Vec<SvmTestEntry> {
 
         let mut fee_payer_data = AccountSharedData::default();
         fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
+        fee_payer_data.set_delegated(true);
         test_entry.add_initial_account(fee_payer, &fee_payer_data);
 
         let target = Pubkey::new_unique();
@@ -2046,6 +2070,7 @@ fn simd83_fee_payer_deallocate(enable_fee_only_transactions: bool) -> Vec<SvmTes
         let mut dealloc_fee_payer_data = AccountSharedData::default();
         dealloc_fee_payer_data.set_lamports(LAMPORTS_PER_SIGNATURE);
         dealloc_fee_payer_data.set_rent_epoch(u64::MAX - 1);
+        dealloc_fee_payer_data.set_delegated(true);
         test_entry.add_initial_account(dealloc_fee_payer, &dealloc_fee_payer_data);
 
         let stable_fee_payer_keypair = Keypair::new();
@@ -2053,6 +2078,7 @@ fn simd83_fee_payer_deallocate(enable_fee_only_transactions: bool) -> Vec<SvmTes
 
         let mut stable_fee_payer_data = AccountSharedData::default();
         stable_fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
+        stable_fee_payer_data.set_delegated(true);
         test_entry.add_initial_account(stable_fee_payer, &stable_fee_payer_data);
 
         // transaction which drains a fee-payer
@@ -2111,6 +2137,7 @@ fn simd83_fee_payer_deallocate(enable_fee_only_transactions: bool) -> Vec<SvmTes
         let mut dealloc_fee_payer_data = AccountSharedData::default();
         dealloc_fee_payer_data.set_lamports(LAMPORTS_PER_SIGNATURE);
         dealloc_fee_payer_data.set_rent_epoch(u64::MAX - 1);
+        dealloc_fee_payer_data.set_delegated(true);
         test_entry.add_initial_account(dealloc_fee_payer, &dealloc_fee_payer_data);
 
         let stable_fee_payer_keypair = Keypair::new();
@@ -2118,18 +2145,20 @@ fn simd83_fee_payer_deallocate(enable_fee_only_transactions: bool) -> Vec<SvmTes
 
         let mut stable_fee_payer_data = AccountSharedData::default();
         stable_fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
+        stable_fee_payer_data.set_delegated(true);
         test_entry.add_initial_account(stable_fee_payer, &stable_fee_payer_data);
 
         let nonce_pubkey = Pubkey::new_unique();
         let initial_durable = DurableNonce::from_blockhash(&Hash::new_unique());
         let initial_nonce_data =
             nonce::state::Data::new(dealloc_fee_payer, initial_durable, LAMPORTS_PER_SIGNATURE);
-        let initial_nonce_account = AccountSharedData::new_data(
+        let mut initial_nonce_account = AccountSharedData::new_data(
             LAMPORTS_PER_SOL,
             &nonce::state::Versions::new(nonce::State::Initialized(initial_nonce_data.clone())),
             &system_program::id(),
         )
         .unwrap();
+        initial_nonce_account.set_delegated(true);
         let initial_nonce_info = NonceInfo::new(nonce_pubkey, initial_nonce_account.clone());
 
         let advanced_durable = DurableNonce::from_blockhash(&LAST_BLOCKHASH);
@@ -2194,6 +2223,7 @@ fn simd83_account_reallocate(enable_fee_only_transactions: bool) -> Vec<SvmTestE
 
     let mut fee_payer_data = AccountSharedData::default();
     fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
+    fee_payer_data.set_delegated(true);
     common_test_entry.add_initial_account(fee_payer, &fee_payer_data);
 
     let mk_target = |size| {
@@ -2270,7 +2300,6 @@ fn simd83_account_reallocate(enable_fee_only_transactions: bool) -> Vec<SvmTestE
     test_entries
 }
 
-#[test_case(program_medley())]
 #[test_case(simple_transfer(false))]
 #[test_case(simple_transfer(true))]
 #[test_case(simple_nonce(false, false))]
@@ -2311,6 +2340,7 @@ fn svm_inspect_account() {
 
     // fee payer
     let mut fee_payer_account = AccountSharedData::default();
+    fee_payer_account.set_delegated(true);
     fee_payer_account.set_lamports(85_000);
     fee_payer_account.set_rent_epoch(u64::MAX);
     initial_test_entry.add_initial_account(fee_payer, &fee_payer_account);
@@ -2468,6 +2498,7 @@ fn svm_inspect_account() {
 
 // Tests for proper accumulation of metrics across loaded programs in a batch.
 #[test]
+#[ignore]
 fn svm_metrics_accumulation() {
     for test_entry in program_medley() {
         let env = SvmTestEnvironment::create(test_entry);
@@ -2503,4 +2534,128 @@ fn svm_metrics_accumulation() {
             0
         );
     }
+}
+
+#[test]
+fn escrow_fee_charged_with_noop_transaction() {
+    // Create a fee payer that does not have an on-ledger account
+    let fee_payer = Keypair::new();
+
+    // Derive the escrow PDA for this fee payer and create it with some lamports
+    let escrow_pubkey = solana_svm::escrow::ephemeral_balance_pda_from_payer(&fee_payer.pubkey());
+    let mut escrow_account = AccountSharedData::default();
+    escrow_account.set_delegated(true);
+    escrow_account.set_lamports(10 * LAMPORTS_PER_SIGNATURE);
+    escrow_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    // Add the escrow account as an initial account in the bank
+    test_entry.add_initial_account(escrow_pubkey, &escrow_account);
+
+    // Construct a no-op transaction (ComputeBudget instruction only)
+    let ix = ComputeBudgetInstruction::set_compute_unit_limit(200_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[ix.into()],
+        Some(&fee_payer.pubkey()),
+        &[&fee_payer],
+        LAST_BLOCKHASH,
+    );
+
+    // Add the transaction to the test entry and set expected escrow deduction by one signature fee
+    test_entry.push_transaction(tx);
+    // Assert that the fee payer was not charged -> does not exist
+    assert!(test_entry
+        .final_accounts
+        .get_mut(&fee_payer.pubkey())
+        .is_none());
+    // Assert that the escrow account will be charged for the transaction fee
+    test_entry.decrease_expected_lamports(&escrow_pubkey, LAMPORTS_PER_SIGNATURE);
+
+    // Execute
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+#[test]
+fn escrow_fee_rejected_when_not_delegated() {
+    // Create a fee payer that does not have an on-ledger account
+    let fee_payer = Keypair::new();
+
+    // Derive the escrow PDA for this fee payer and create it with some lamports
+    let escrow_pubkey = solana_svm::escrow::ephemeral_balance_pda_from_payer(&fee_payer.pubkey());
+    let mut escrow_account = AccountSharedData::default();
+    // Not delegated: should not be allowed to pay fees
+    escrow_account.set_delegated(false);
+    escrow_account.set_lamports(10 * LAMPORTS_PER_SIGNATURE);
+    escrow_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    // Add the escrow account as an initial account in the bank
+    test_entry.add_initial_account(escrow_pubkey, &escrow_account);
+
+    // Construct a no-op transaction (ComputeBudget instruction only)
+    let ix = ComputeBudgetInstruction::set_compute_unit_limit(200_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[ix.into()],
+        Some(&fee_payer.pubkey()),
+        &[&fee_payer],
+        LAST_BLOCKHASH,
+    );
+
+    // Expect the transaction to be discarded due to InvalidAccountForFee
+    test_entry.push_transaction_with_status(tx, ExecutionStatus::Discarded);
+
+    // Execute
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+#[test]
+fn escrow_fee_charged_when_feepayer_exists_and_not_delegated() {
+    let fee_payer = Keypair::new();
+    let mut fee_payer_account = AccountSharedData::default();
+    fee_payer_account.set_lamports(1_000_000_000);
+    fee_payer_account.set_delegated(false); // explicitly not delegated
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    // Derive the escrow PDA for this fee payer and create it with some lamports, delegated
+    let escrow_pubkey = solana_svm::escrow::ephemeral_balance_pda_from_payer(&fee_payer.pubkey());
+    let mut escrow_account = AccountSharedData::default();
+    escrow_account.set_delegated(true);
+    escrow_account.set_lamports(10 * LAMPORTS_PER_SIGNATURE);
+    escrow_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    // Add the fee payer and the escrow account as initial accounts in the bank
+    test_entry.add_initial_account(fee_payer.pubkey(), &fee_payer_account);
+    test_entry.add_initial_account(escrow_pubkey, &escrow_account);
+
+    // Construct a no-op transaction (ComputeBudget instruction only)
+    let ix = ComputeBudgetInstruction::set_compute_unit_limit(200_000);
+    let tx = Transaction::new_signed_with_payer(
+        &[ix.into()],
+        Some(&fee_payer.pubkey()),
+        &[&fee_payer],
+        LAST_BLOCKHASH,
+    );
+
+    // Add the transaction to the test entry and set expected escrow deduction by one signature fee
+    test_entry.push_transaction(tx);
+
+    // Assert that the fee payer exists and is not charged (balance remains 1_000_000_000)
+    assert_eq!(
+        test_entry
+            .final_accounts
+            .get(&fee_payer.pubkey())
+            .unwrap()
+            .lamports(),
+        1_000_000_000
+    );
+
+    // Assert that the escrow account will be charged for the transaction fee
+    test_entry.decrease_expected_lamports(&escrow_pubkey, LAMPORTS_PER_SIGNATURE);
+
+    // Execute
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
 }

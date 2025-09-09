@@ -88,15 +88,26 @@ impl RollbackAccounts {
     /// cost of transaction processing in the cost model.
     pub fn data_size(&self) -> usize {
         match self {
-            Self::FeePayerOnly { fee_payer_account } => fee_payer_account.data().len(),
+            Self::FeePayerOnly {
+                fee_payer_account, ..
+            } => fee_payer_account.data().len(),
             Self::SameNonceAndFeePayer { nonce } => nonce.account().data().len(),
             Self::SeparateNonceAndFeePayer {
                 nonce,
                 fee_payer_account,
+                ..
             } => fee_payer_account
                 .data()
                 .len()
                 .saturating_add(nonce.account().data().len()),
+        }
+    }
+
+    /// Return the effective fee-payer address that should be written back for fees-only results.
+    pub fn effective_fee_payer_address(&self) -> Pubkey {
+        match self {
+            Self::SameNonceAndFeePayer { nonce } => *nonce.address(),
+            _ => Pubkey::default(),
         }
     }
 }

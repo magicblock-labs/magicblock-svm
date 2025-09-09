@@ -2618,8 +2618,7 @@ dependencies = [
 [[package]]
 name = "solana-account"
 version = "2.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f949fe4edaeaea78c844023bfc1c898e0b1f5a100f8a8d2d0f85d0a7b090258"
+source = "git+https://github.com/magicblock-labs/solana-account.git?rev=a892d2#a892d2aff374f260535a4499e00bbe5752a2d29c"
 dependencies = [
  "bincode",
  "qualifier_attr",
@@ -2631,7 +2630,6 @@ dependencies = [
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
  "solana-instruction",
- "solana-logger",
  "solana-pubkey",
  "solana-sdk-ids",
  "solana-sysvar",
