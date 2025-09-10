@@ -1,6 +1,7 @@
 #![cfg_attr(feature = "frozen-abi", feature(min_specialization))]
 #![allow(clippy::arithmetic_side_effects)]
 
+mod access_permissions;
 pub mod account_loader;
 pub mod account_overrides;
 pub mod escrow;
