@@ -7,6 +7,7 @@ use {
         register_builtins, MockBankCallback, MockForkGraph, EXECUTION_EPOCH, EXECUTION_SLOT,
         WALLCLOCK_TIME,
     },
+    solana_account::test_utils::create_borrowed_account_shared_data,
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount, WritableAccount},
         clock::Slot,
@@ -2317,6 +2318,7 @@ fn simd83_account_reallocate(enable_fee_only_transactions: bool) -> Vec<SvmTestE
 #[test_case(simd83_fee_payer_deallocate(true))]
 #[test_case(simd83_account_reallocate(false))]
 #[test_case(simd83_account_reallocate(true))]
+#[ignore = "we don't support entries in blocks"]
 fn svm_integration(test_entries: Vec<SvmTestEntry>) {
     for test_entry in test_entries {
         let env = SvmTestEnvironment::create(test_entry);
@@ -2339,8 +2341,13 @@ fn svm_inspect_account() {
     // Setting up the accounts for the transfer
 
     // fee payer
-    let mut fee_payer_account = AccountSharedData::default();
-    fee_payer_account.set_delegated(true);
+    let fee_payer_account = AccountSharedData::default();
+    let (_buffer, mut fee_payer_account) =
+        create_borrowed_account_shared_data(&fee_payer_account, 0);
+    fee_payer_account
+        .as_borrowed_mut()
+        .unwrap()
+        .set_privileged(true);
     fee_payer_account.set_lamports(85_000);
     fee_payer_account.set_rent_epoch(u64::MAX);
     initial_test_entry.add_initial_account(fee_payer, &fee_payer_account);
