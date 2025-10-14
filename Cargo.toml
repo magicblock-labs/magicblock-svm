@@ -2,7 +2,7 @@
 name = "solana-svm"
 description = "MagicBlock SVM (Patch of Solana SVM with extra features for ephemeral rollups)"
 documentation = "https://docs.rs/solana-svm"
-version = "2.2.1"
+version = "2.3.1"
 authors = ["Anza Maintainers <maintainers@anza.xyz>"]
 repository = "https://github.com/anza-xyz/agave"
 homepage = "https://anza.xyz/"
@@ -10,7 +10,7 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
-solana-feature-set = { version = "=2.2.1" }
+solana-feature-set = { version = "=2.2.4" }
 solana-precompiles = { version = "=2.2.1" }
 ahash = { version = "0.8.12" }
 log = { version = "0.4.27" }
@@ -19,40 +19,40 @@ qualifier_attr = { version = "0.2.2", optional = true }
 serde = { version = "1.0.217", features = ["rc"] }
 serde_derive = { version = "1.0.217" }
 solana-account = { version = "=2.2.1" }
-solana-bpf-loader-program = { version = "=2.2.1" }
-solana-clock = { version = "=2.2.1" }
-solana-compute-budget = { version = "=2.2.1" }
-solana-compute-budget-instruction = { version = "=2.2.1" }
-solana-fee-structure = { version = "=2.2.1" }
-solana-frozen-abi = { version = "=2.2.1", optional = true, features = [
+solana-bpf-loader-program = { version = "=2.3.1" }
+solana-clock = { version = "=2.2.2" }
+solana-compute-budget = { version = "=2.3.1" }
+solana-compute-budget-instruction = { version = "=2.3.1" }
+solana-fee-structure = { version = "=2.3.0" }
+solana-frozen-abi = { version = "=2.2.2", optional = true, features = [
   "frozen-abi",
 ] }
 solana-frozen-abi-macro = { version = "=2.2.1", optional = true, features = [
   "frozen-abi",
 ] }
-solana-hash = { version = "=2.2.1" }
-solana-instruction = { version = "=2.2.1", features = ["std"] }
-solana-instructions-sysvar = { version = "=2.2.1" }
-solana-loader-v4-program = { version = "=2.2.1" }
-solana-log-collector = { version = "=2.2.1" }
-solana-measure = { version = "=2.2.1" }
-solana-message = { version = "=2.2.1" }
+solana-hash = { version = "=2.3.0" }
+solana-instruction = { version = "=2.3.0", features = ["std"] }
+solana-instructions-sysvar = { version = "=2.2.2" }
+solana-loader-v4-program = { version = "=2.3.1" }
+solana-log-collector = { version = "=2.3.1" }
+solana-measure = { version = "=2.3.1" }
+solana-message = { version = "=2.4.0" }
 solana-nonce = { version = "=2.2.1" }
 solana-nonce-account = { version = "=2.2.1" }
 solana-program = { version = "=2.2.1", default-features = false }
-solana-program-runtime = { version = "=2.2.1", features = ["metrics"] }
-solana-pubkey = { version = "=2.2.1" }
+solana-program-runtime = { version = "=2.3.1", features = ["metrics"] }
+solana-pubkey = { version = "=2.4.0" }
 solana-rent = { version = "=2.2.1" }
 solana-rent-debits = { version = "=2.2.1" }
 solana-reserved-account-keys = { version = "=2.2.1" }
-solana-sdk = { version = "=2.2.1" }
+solana-sdk = { version = "=2.3.1" }
 solana-sdk-ids = { version = "=2.2.1" }
-solana-svm-rent-collector = { version = "=2.2.1" }
-solana-svm-transaction = { version = "=2.2.1" }
-solana-timings = { version = "=2.2.1" }
-solana-transaction-context = { version = "=2.2.1" }
+solana-svm-rent-collector = { version = "=2.3.1" }
+solana-svm-transaction = { version = "=2.3.1" }
+solana-timings = { version = "=2.3.1" }
+solana-transaction-context = { version = "=2.3.1" }
 solana-transaction-error = { version = "=2.2.1" }
-solana-type-overrides = { version = "=2.2.1" }
+solana-type-overrides = { version = "=2.3.1" }
 thiserror = { version = "2.0.12" }
 
 [lib]
@@ -73,35 +73,35 @@ prost = "0.11.9"
 rand0-7 = { package = "rand", version = "0.7" }
 shuttle = "0.7.1"
 solana-account = { version = "=2.2.1", features = ["dev-context-only-utils"] }
-solana-clock = { version = "=2.2.1" }
-solana-compute-budget = { version = "=2.2.1", features = [
+solana-clock = { version = "=2.2.2" }
+solana-compute-budget = { version = "=2.3.1", features = [
   "dev-context-only-utils",
 ] }
-solana-compute-budget-interface = { version = "=2.2.1" }
-solana-compute-budget-program = { version = "=2.2.1" }
-solana-ed25519-program = { version = "=2.2.1" }
+solana-compute-budget-interface = { version = "=2.2.2" }
+solana-compute-budget-program = { version = "=2.3.1" }
+solana-ed25519-program = { version = "=2.2.3" }
 solana-epoch-schedule = { version = "=2.2.1" }
 solana-fee-calculator = { version = "=2.2.1" }
 solana-keypair = { version = "=2.2.1" }
-solana-logger = { version = "=2.2.1" }
-solana-native-token = { version = "=2.2.1" }
-solana-pubkey = { version = "=2.2.1" }
+solana-logger = { version = "=2.3.1" }
+solana-native-token = { version = "=2.2.2" }
+solana-pubkey = { version = "=2.4.0" }
 solana-rent = { version = "=2.2.1" }
-solana-sbpf = "0.10"
-solana-sdk = { version = "=2.2.1", features = ["dev-context-only-utils"] }
+solana-sbpf = "0.11"
+#solana-sdk = { version = "=2.2.1", features = ["dev-context-only-utils"] }
 solana-secp256k1-program = { version = "=2.2.1" }
-solana-secp256r1-program = { version = "=2.2.1", features = [
+solana-secp256r1-program = { version = "=2.2.3", features = [
   "openssl-vendored",
 ] }
-solana-signature = { version = "=2.2.1" }
+solana-signature = { version = "=2.3.0" }
 solana-signer = { version = "=2.2.1" }
 # See order-crates-for-publishing.py for using this unusual `path = "."`
-solana-svm-conformance = { version = "=2.2.1" }
-solana-system-program = { version = "=2.2.1" }
+solana-svm-conformance = { version = "=2.3.1" }
+solana-system-program = { version = "=2.3.1" }
 solana-system-transaction = { version = "=2.2.1" }
-solana-sysvar = { version = "=2.2.1" }
-solana-transaction = { version = "=2.2.1" }
-solana-transaction-context = { version = "=2.2.1", features = [
+solana-sysvar = { version = "=2.2.2" }
+solana-transaction = { version = "=2.2.2" }
+solana-transaction-context = { version = "=2.3.1", features = [
   "dev-context-only-utils",
 ] }
 test-case = "3.3.1"
