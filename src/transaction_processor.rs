@@ -626,11 +626,21 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut loaded_fee_payer = if fee_lamports_per_signature == 0 {
             // zero-fee: use provided account if any, otherwise an empty default
-            initial_loaded.unwrap_or_else(|| LoadedTransactionAccount {
-                account: AccountSharedData::default(),
-                loaded_size: 0,
-                rent_collected: 0,
-            })
+            if let Some(feepayer) = initial_loaded {
+                // we check that if the fee payer is used as writeable, then it must be
+                // subject to the same if writeable then must be delegated rule.
+                if message.is_writable(0) && !is_delegated_or_privileged(&feepayer) {
+                    error_counters.invalid_account_for_fee += 1;
+                    return Err(TransactionError::InvalidAccountForFee);
+                }
+                feepayer
+            } else {
+                LoadedTransactionAccount {
+                    account: Default::default(),
+                    loaded_size: 0,
+                    rent_collected: 0,
+                }
+            }
         } else {
             initial_loaded
                 .filter(is_delegated_or_privileged)
