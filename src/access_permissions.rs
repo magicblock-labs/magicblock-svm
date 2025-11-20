@@ -1,5 +1,6 @@
+use solana_pubkey::Pubkey;
 use solana_svm_transaction::svm_message::SVMMessage;
-use solana_transaction_error::{TransactionError, TransactionResult};
+use solana_transaction_error::TransactionError;
 
 use crate::account_loader::LoadedTransaction;
 
@@ -24,7 +25,7 @@ impl LoadedTransaction {
     pub(crate) fn validate_accounts_access(
         &self,
         message: &impl SVMMessage,
-    ) -> TransactionResult<()> {
+    ) -> Result<(), (TransactionError, Pubkey)> {
         let payer = self.accounts.first().map(|(_, acc)| acc);
         if payer.map(|p| p.privileged()).unwrap_or_default() {
             // Payer has privileged access, so we can skip the validation.
@@ -33,10 +34,10 @@ impl LoadedTransaction {
 
         // For non-privileged payers, validate the rest of the accounts.
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
-        for (i, (_, acc)) in self.accounts.iter().enumerate().skip(1) {
+        for (i, (pk, acc)) in self.accounts.iter().enumerate().skip(1) {
             // Enforce that any account intended to be writable must be a delegated account.
             if message.is_writable(i) && !acc.delegated() {
-                return Err(TransactionError::InvalidWritableAccount);
+                return Err((TransactionError::InvalidWritableAccount, *pk));
             }
         }
         Ok(())

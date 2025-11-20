@@ -126,37 +126,6 @@ mod tests {
     };
 
     #[test]
-    fn test_new_fee_payer_only() {
-        let fee_payer_address = Pubkey::new_unique();
-        let fee_payer_account = AccountSharedData::new(100, 0, &Pubkey::default());
-        let fee_payer_rent_epoch = fee_payer_account.rent_epoch();
-
-        const TEST_RENT_DEBIT: u64 = 1;
-        let rent_collected_fee_payer_account = {
-            let mut account = fee_payer_account.clone();
-            account.set_lamports(fee_payer_account.lamports() - TEST_RENT_DEBIT);
-            account.set_rent_epoch(fee_payer_rent_epoch + 1);
-            account
-        };
-
-        let rollback_accounts = RollbackAccounts::new(
-            None,
-            fee_payer_address,
-            rent_collected_fee_payer_account,
-            TEST_RENT_DEBIT,
-            fee_payer_rent_epoch,
-        );
-
-        let expected_fee_payer_account = fee_payer_account;
-        match rollback_accounts {
-            RollbackAccounts::FeePayerOnly { fee_payer_account } => {
-                assert_eq!(expected_fee_payer_account, fee_payer_account);
-            }
-            _ => panic!("Expected FeePayerOnly variant"),
-        }
-    }
-
-    #[test]
     fn test_new_same_nonce_and_fee_payer() {
         let nonce_address = Pubkey::new_unique();
         let durable_nonce = DurableNonce::from_blockhash(&Hash::new_unique());

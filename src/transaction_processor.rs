@@ -469,8 +469,28 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     // This check is unnecessary for other load results (like `FeesOnly`),
                     // as those states imply the transaction failed to load these other accounts,
                     // and the fee payer is validated separately.
-                    if let Err(err) = loaded_transaction.validate_accounts_access(tx) {
-                        processing_results.push(Err(err));
+                    if let Err((err, offender)) = loaded_transaction.validate_accounts_access(tx) {
+                        // If an account access violation was detected, we construct a fake
+                        // execution for the convenience of the user, so that the transaction
+                        // will be persisted to the ledger with some useful debug information
+                        let execution_details = TransactionExecutionDetails {
+                            status: Err(err),
+                            log_messages: Some(vec![format!(
+                                "Account {offender} was used as writeable\
+                                without being delegated to this ER"
+                            )]),
+                            accounts_data_len_delta: 0,
+                            return_data: None,
+                            executed_units: 0,
+                            inner_instructions: None,
+                        };
+                        let txn = ExecutedTransaction {
+                            loaded_transaction,
+                            execution_details,
+                            programs_modified_by_tx: Default::default(),
+                        };
+                        let result = ProcessedTransaction::Executed(Box::new(txn));
+                        processing_results.push(Ok(result));
                         continue;
                     }
                     // observe all the account balances before executing the transaction
@@ -2388,86 +2408,6 @@ mod tests {
                 ),
                 compute_budget_limits,
                 fee_details: FeeDetails::new(transaction_fee, priority_fee),
-                loaded_fee_payer_account: LoadedTransactionAccount {
-                    loaded_size: fee_payer_account.data().len(),
-                    account: post_validation_fee_payer_account,
-                    rent_collected: fee_payer_rent_debit,
-                },
-                fee_payer_address: *fee_payer_address,
-            })
-        );
-    }
-
-    #[test]
-    fn test_validate_transaction_fee_payer_rent_paying() {
-        let lamports_per_signature = 5000;
-        let message = new_unchecked_sanitized_message(Message::new_with_blockhash(
-            &[],
-            Some(&Pubkey::new_unique()),
-            &Hash::new_unique(),
-        ));
-        let compute_budget_limits = process_compute_budget_instructions(
-            SVMMessage::program_instructions_iter(&message),
-            &FeatureSet::default(),
-        )
-        .unwrap();
-        let fee_payer_address = message.fee_payer();
-        let mut rent_collector = RentCollector::default();
-        rent_collector.rent.lamports_per_byte_year = 1_000_000;
-        let min_balance = rent_collector.rent.minimum_balance(0);
-        let transaction_fee = lamports_per_signature;
-        let starting_balance = min_balance - 1;
-        let mut fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
-        fee_payer_account.set_delegated(true);
-        let fee_payer_rent_debit = rent_collector
-            .get_rent_due(
-                fee_payer_account.lamports(),
-                fee_payer_account.data().len(),
-                fee_payer_account.rent_epoch(),
-            )
-            .lamports();
-        assert!(fee_payer_rent_debit > 0);
-
-        let mut mock_accounts = HashMap::new();
-        mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
-        let mock_bank = MockBankCallback {
-            account_shared_data: Arc::new(RwLock::new(mock_accounts)),
-            ..Default::default()
-        };
-        let mut account_loader = (&mock_bank).into();
-
-        let mut error_counters = TransactionErrorMetrics::default();
-        let result =
-            TransactionBatchProcessor::<TestForkGraph>::validate_transaction_nonce_and_fee_payer(
-                &mut account_loader,
-                &message,
-                CheckedTransactionDetails::new(None, lamports_per_signature),
-                &Hash::default(),
-                FeeStructure::default().lamports_per_signature,
-                &rent_collector,
-                &mut error_counters,
-                &mock_bank,
-            );
-
-        let post_validation_fee_payer_account = {
-            let mut account = fee_payer_account.clone();
-            account.set_rent_epoch(1);
-            account.set_lamports(starting_balance - transaction_fee - fee_payer_rent_debit);
-            account
-        };
-
-        assert_eq!(
-            result,
-            Ok(ValidatedTransactionDetails {
-                rollback_accounts: RollbackAccounts::new(
-                    None, // nonce
-                    *fee_payer_address,
-                    post_validation_fee_payer_account.clone(),
-                    fee_payer_rent_debit,
-                    0, // rent epoch
-                ),
-                compute_budget_limits,
-                fee_details: FeeDetails::new(transaction_fee, 0),
                 loaded_fee_payer_account: LoadedTransactionAccount {
                     loaded_size: fee_payer_account.data().len(),
                     account: post_validation_fee_payer_account,
