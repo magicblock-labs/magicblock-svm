@@ -127,4 +127,4 @@ shuttle-test = [
 ]
 
 [patch.crates-io]
-solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "a892d2" }
+solana-account = { git = "https://github.com/magicblock-labs/solana-account.git", rev = "731fa50" }
