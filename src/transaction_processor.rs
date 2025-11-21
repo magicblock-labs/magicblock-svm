@@ -477,7 +477,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             status: Err(err),
                             log_messages: Some(vec![format!(
                                 "Account {offender} was used as writeable\
-                                without being delegated to this ER"
+                                 without being delegated to this ER"
                             )]),
                             accounts_data_len_delta: 0,
                             return_data: None,
