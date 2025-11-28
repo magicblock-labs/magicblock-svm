@@ -367,27 +367,39 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         // stage, as we already have an access to all of the accounts
         let mut balances = AccountsBalances::default();
 
+        let mut replenish_retried = false;
         let (mut program_cache_for_tx_batch, program_cache_us) = measure_us!({
-            let program_cache_for_tx_batch = self.replenish_program_cache(
-                callbacks,
-                &program_accounts_map,
-                &mut execute_timings,
-                config.check_program_modification_slot,
-                config.limit_to_load_programs,
-            );
+            loop {
+                let program_cache_for_tx_batch = self.replenish_program_cache(
+                    callbacks,
+                    &program_accounts_map,
+                    &mut execute_timings,
+                    config.check_program_modification_slot,
+                    config.limit_to_load_programs,
+                );
 
-            if program_cache_for_tx_batch.hit_max_limit {
-                return LoadAndExecuteSanitizedTransactionsOutput {
-                    error_metrics,
-                    execute_timings,
-                    processing_results: (0..sanitized_txs.len())
-                        .map(|_| Err(TransactionError::ProgramCacheHitMaxLimit))
-                        .collect(),
-                    balances,
-                };
+                if program_cache_for_tx_batch.hit_max_limit {
+                    if !replenish_retried {
+                        replenish_retried = true;
+                        self.program_cache
+                            .write()
+                            .unwrap()
+                            .prune_by_deployment_slot(self.slot);
+                        continue;
+                    }
+
+                    return LoadAndExecuteSanitizedTransactionsOutput {
+                        error_metrics,
+                        execute_timings,
+                        processing_results: (0..sanitized_txs.len())
+                            .map(|_| Err(TransactionError::ProgramCacheHitMaxLimit))
+                            .collect(),
+                        balances,
+                    };
+                }
+
+                break program_cache_for_tx_batch;
             }
-
-            program_cache_for_tx_batch
         });
 
         // Determine a capacity for the internal account cache. This
