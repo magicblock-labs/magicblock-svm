@@ -384,7 +384,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         self.program_cache
                             .write()
                             .unwrap()
-                            .prune_by_deployment_slot(self.slot);
+                            .prune(self.slot, self.epoch);
                         continue;
                     }
 
