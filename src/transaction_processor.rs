@@ -378,13 +378,19 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     config.limit_to_load_programs,
                 );
 
+                // This means the cache is corrupted and runtime cannot load required programs
                 if program_cache_for_tx_batch.hit_max_limit {
+                    // We retry once (will most likely succeed)
+                    // But to guarantee success we clear the cache
                     if !replenish_retried {
                         replenish_retried = true;
-                        self.program_cache
-                            .write()
-                            .unwrap()
-                            .prune(self.slot, self.epoch);
+                        let mut cache = self.program_cache.write().unwrap();
+                        // We need to reset the slot to avoid debug panics
+                        let slot = cache.latest_root_slot;
+                        cache.latest_root_slot = 0;
+                        cache.prune(0, 0);
+                        // And restore the slot to previous value after prune
+                        cache.latest_root_slot = slot;
                         continue;
                     }
 
