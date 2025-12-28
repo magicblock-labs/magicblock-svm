@@ -86,6 +86,7 @@ impl SvmTestEnvironment<'_> {
             EXECUTION_SLOT,
             EXECUTION_EPOCH,
             Arc::downgrade(&fork_graph),
+            true,
             Some(Arc::new(create_custom_loader())),
             None, // We are not using program runtime v2.
         );
