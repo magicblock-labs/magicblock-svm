@@ -2667,3 +2667,90 @@ fn escrow_fee_charged_when_feepayer_exists_and_not_delegated() {
     let env = SvmTestEnvironment::create(test_entry);
     env.execute();
 }
+
+#[test]
+fn enforce_access_permissions_false_allows_write_to_non_delegated() {
+    // Test that when enforce_access_permissions == false, we can write to non-delegated accounts
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = AccountSharedData::default();
+    fee_payer_account.set_lamports(LAMPORTS_PER_SOL);
+    // Delegate fee payer so we're not testing fee payer check
+    fee_payer_account.set_delegated(true);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let recipient_keypair = Keypair::new();
+    let recipient = recipient_keypair.pubkey();
+    let mut recipient_account = AccountSharedData::default();
+    recipient_account.set_lamports(0);
+    // Non-delegated account
+    recipient_account.set_delegated(false);
+    recipient_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+    test_entry.add_initial_account(recipient, &recipient_account);
+
+    // Create a transfer instruction that writes to the non-delegated recipient
+    let transfer_amount = 1_000_000;
+    let instruction = system_instruction::transfer(&fee_payer, &recipient, transfer_amount);
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    // Transaction should succeed and update balances accordingly
+    test_entry.push_transaction(transaction);
+    test_entry.decrease_expected_lamports(&fee_payer, transfer_amount + LAMPORTS_PER_SIGNATURE);
+    test_entry.increase_expected_lamports(&recipient, transfer_amount);
+
+    let mut env = SvmTestEnvironment::create(test_entry);
+    env.batch_processor.enforce_access_permissions = false;
+    env.execute();
+}
+
+#[test]
+fn enforce_access_permissions_true_rejects_write_to_non_delegated() {
+    // Test that when enforce_access_permissions == true, we cannot write to non-delegated accounts
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = AccountSharedData::default();
+    fee_payer_account.set_lamports(LAMPORTS_PER_SOL);
+    // Delegate fee payer so we're not testing fee payer check
+    fee_payer_account.set_delegated(true);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let recipient_keypair = Keypair::new();
+    let recipient = recipient_keypair.pubkey();
+    let mut recipient_account = AccountSharedData::default();
+    recipient_account.set_lamports(0);
+    // Non-delegated account
+    recipient_account.set_delegated(false);
+    recipient_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+    test_entry.add_initial_account(recipient, &recipient_account);
+
+    // Create a transfer instruction that writes to the non-delegated recipient
+    let transfer_amount = 1_000_000;
+    let instruction = system_instruction::transfer(&fee_payer, &recipient, transfer_amount);
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    // Transaction should fail and only deduct fee from fee payer
+    test_entry.push_transaction_with_status(transaction, ExecutionStatus::ExecutedFailed);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    // Create test environment with enforce_access_permissions = true (default)
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
