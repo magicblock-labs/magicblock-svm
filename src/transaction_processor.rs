@@ -188,7 +188,6 @@ pub struct TransactionBatchProcessor<FG: ForkGraph> {
     pub builtin_program_ids: RwLock<HashSet<Pubkey>>,
 
     /// Whether to enforce access permissions when executing transactions
-    /// Can only be configured via [Self::new_uninitialized]
     /// Defaults to true
     pub enforce_access_permissions: bool,
 }
