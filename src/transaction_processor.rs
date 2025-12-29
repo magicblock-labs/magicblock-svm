@@ -661,31 +661,48 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let is_delegated_or_privileged =
             |acc: &LoadedTransactionAccount| acc.account.delegated() || acc.account.privileged();
 
-        let mut loaded_fee_payer = if !enforce_access_permissions || fee_lamports_per_signature == 0
-        {
-            // zero-fee: use provided account if any, otherwise an empty default
-            initial_loaded.unwrap_or_else(|| LoadedTransactionAccount {
-                account: AccountSharedData::default(),
-                loaded_size: 0,
-                rent_collected: 0,
-            })
-        } else {
-            initial_loaded
-                .filter(is_delegated_or_privileged)
-                .or_else(|| {
-                    let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
-                    account_loader
-                        .load_account(&escrow_address, true)
-                        .filter(is_delegated_or_privileged)
-                        .map(|acc| {
-                            fee_payer_address = escrow_address;
-                            acc
-                        })
-                })
-                .ok_or_else(|| {
+        let mut loaded_fee_payer = if fee_lamports_per_signature == 0 {
+            if fee_lamports_per_signature == 0 {
+                Ok(initial_loaded.unwrap_or_else(|| LoadedTransactionAccount {
+                    account: AccountSharedData::default(),
+                    loaded_size: 0,
+                    rent_collected: 0,
+                }))
+            } else {
+                initial_loaded.ok_or_else(|| {
                     error_counters.invalid_account_for_fee += 1;
                     TransactionError::InvalidAccountForFee
-                })?
+                })
+            }?
+        } else {
+            // Even if we don't enforce access permissions we still try to use the escrow account
+            // if it exists
+            let allowed_or_escrow =
+                initial_loaded
+                    .filter(is_delegated_or_privileged)
+                    .or_else(|| {
+                        let escrow_address = ephemeral_balance_pda_from_payer(&fee_payer_address);
+                        account_loader
+                            .load_account(&escrow_address, true)
+                            .filter(is_delegated_or_privileged)
+                            .map(|acc| {
+                                fee_payer_address = escrow_address;
+                                acc
+                            })
+                    });
+            let loaded_account = if !enforce_access_permissions && allowed_or_escrow.is_none() {
+                // NOTE: loading from bank is potentially expensive, but this runs only in dev-tool
+                // mode and thus is preferred over cloning the `initial_loaded` account in all
+                // cases where we collect fees instead
+                account_loader.load_account(&fee_payer_address, true)
+            } else {
+                None
+            };
+
+            loaded_account.ok_or_else(|| {
+                error_counters.invalid_account_for_fee += 1;
+                TransactionError::InvalidAccountForFee
+            })?
         };
 
         let fee_payer_loaded_rent_epoch = loaded_fee_payer.account.rent_epoch();
