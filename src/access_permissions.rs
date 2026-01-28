@@ -35,8 +35,9 @@ impl LoadedTransaction {
         // For non-privileged payers, validate the rest of the accounts.
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (pk, acc)) in self.accounts.iter().enumerate().skip(1) {
-            // Enforce that any account intended to be writable must be a delegated account.
-            if message.is_writable(i) && !acc.delegated() {
+            // Enforce that any account intended to be writable
+            // must be a delegated/ephemeral account.
+            if message.is_writable(i) && !(acc.delegated() || acc.ephemeral()) {
                 return Err((TransactionError::InvalidWritableAccount, *pk));
             }
         }
