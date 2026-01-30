@@ -42,7 +42,7 @@ impl LoadedTransaction {
         // For non-privileged payers, validate the rest of the accounts.
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (pk, acc)) in self.accounts.iter().enumerate().skip(1) {
-            if message.is_writable(i) && mutation_allowed(acc) {
+            if message.is_writable(i) && !mutation_allowed(acc) {
                 return Err((TransactionError::InvalidWritableAccount, *pk));
             }
         }
