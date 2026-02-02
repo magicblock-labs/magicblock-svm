@@ -1,5 +1,8 @@
 #![cfg_attr(feature = "frozen-abi", feature(min_specialization))]
 #![allow(clippy::arithmetic_side_effects)]
+// We don't want to modify this crate more than necessary in ordr to be
+// able to merge upstream changes. So we don't fix deprecated items here.
+#![allow(deprecated)]
 
 mod access_permissions;
 pub mod account_loader;
