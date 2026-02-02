@@ -756,7 +756,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             loaded_fee_payer.rent_collected,
             fee_payer_loaded_rent_epoch,
         );
-
         Ok(ValidatedTransactionDetails {
             fee_details,
             rollback_accounts,
