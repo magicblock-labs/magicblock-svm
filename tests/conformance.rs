@@ -232,6 +232,7 @@ fn run_fixture(fixture: InstrFixture, filename: OsString) {
         42,
         2,
         Arc::downgrade(&fork_graph),
+        true,
         Some(Arc::new(v1_environment)),
         None,
     );

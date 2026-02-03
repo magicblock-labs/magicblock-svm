@@ -7,7 +7,7 @@ use {
         register_builtins, MockBankCallback, MockForkGraph, EXECUTION_EPOCH, EXECUTION_SLOT,
         WALLCLOCK_TIME,
     },
-    solana_account::test_utils::create_borrowed_account_shared_data,
+    solana_account::test_utils::{create_borrowed_account_shared_data, BorrowedAccountBufferArea},
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount, WritableAccount},
         clock::Slot,
@@ -53,6 +53,35 @@ const LAST_BLOCKHASH: Hash = Hash::new_from_array([7; 32]); // Arbitrary constan
 
 pub type AccountsMap = HashMap<Pubkey, AccountSharedData>;
 
+// -------------------------
+// Helper Functions
+// -------------------------
+
+fn create_delegated_account(lamports: u64) -> AccountSharedData {
+    let mut account = AccountSharedData::default();
+    account.set_lamports(lamports);
+    account.set_delegated(true);
+    account
+}
+
+fn create_non_delegated_account(lamports: u64) -> AccountSharedData {
+    let mut account = AccountSharedData::default();
+    account.set_lamports(lamports);
+    account.set_delegated(false);
+    account
+}
+
+fn create_privileged_account(lamports: u64) -> (BorrowedAccountBufferArea, AccountSharedData) {
+    // Create base account with lamports
+    let mut account = AccountSharedData::new_rent_epoch(lamports, 0, &Pubkey::default(), u64::MAX);
+    account.set_delegated(true);
+
+    // Make it privileged using the borrowed account API
+    let (buffer, mut borrowed_acc) = create_borrowed_account_shared_data(&account, 0);
+    borrowed_acc.as_borrowed_mut().unwrap().set_privileged(true);
+    (buffer, borrowed_acc)
+}
+
 // container for everything needed to execute a test entry
 // care should be taken if reused, because we update bank account states, but otherwise leave it as-is
 // the environment is made available for tests that check it after processing
@@ -86,6 +115,7 @@ impl SvmTestEnvironment<'_> {
             EXECUTION_SLOT,
             EXECUTION_EPOCH,
             Arc::downgrade(&fork_graph),
+            true,
             Some(Arc::new(create_custom_loader())),
             None, // We are not using program runtime v2.
         );
@@ -824,13 +854,10 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let source = source_keypair.pubkey();
         let destination = Pubkey::new_unique();
 
-        let mut source_data = AccountSharedData::default();
-        source_data.set_delegated(true);
-        let mut destination_data = AccountSharedData::default();
-        destination_data.set_delegated(true);
+        let source_data = create_delegated_account(LAMPORTS_PER_SOL * 10);
+        let mut destination_data = create_delegated_account(0);
         destination_data.set_rent_epoch(u64::MAX);
 
-        source_data.set_lamports(LAMPORTS_PER_SOL * 10);
         test_entry.add_initial_account(source, &source_data);
         test_entry.add_initial_account(destination, &destination_data);
 
@@ -850,10 +877,7 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let source_keypair = Keypair::new();
         let source = source_keypair.pubkey();
 
-        let mut source_data = AccountSharedData::default();
-        source_data.set_delegated(true);
-
-        source_data.set_lamports(transfer_amount - 1);
+        let source_data = create_delegated_account(transfer_amount - 1);
         test_entry.add_initial_account(source, &source_data);
 
         test_entry.push_transaction_with_status(
@@ -901,10 +925,7 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let source_keypair = Keypair::new();
         let source = source_keypair.pubkey();
 
-        let mut source_data = AccountSharedData::default();
-        source_data.set_delegated(true);
-
-        source_data.set_lamports(transfer_amount * 10);
+        let source_data = create_delegated_account(transfer_amount * 10);
         test_entry
             .initial_accounts
             .insert(source, source_data.clone());
@@ -971,9 +992,7 @@ fn simple_nonce(enable_fee_only_transactions: bool, fee_paying_nonce: bool) -> V
         let mut nonce_balance = Rent::default().minimum_balance(nonce_size);
 
         if !fake_fee_payer && !fee_paying_nonce {
-            let mut fee_payer_data = AccountSharedData::default();
-            fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
-            fee_payer_data.set_delegated(true);
+            let fee_payer_data = create_delegated_account(LAMPORTS_PER_SOL);
             test_entry.add_initial_account(fee_payer, &fee_payer_data);
         } else if rent_paying_nonce {
             assert!(fee_paying_nonce);
@@ -1196,16 +1215,12 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
         let destination1 = Pubkey::new_unique();
         let destination2 = Pubkey::new_unique();
 
-        let mut source_data = AccountSharedData::default();
-        source_data.set_delegated(true);
-        let mut destination1_data = AccountSharedData::default();
-        destination1_data.set_delegated(true);
+        let source_data = create_delegated_account(LAMPORTS_PER_SOL * 10);
+        let mut destination1_data = create_delegated_account(0);
         destination1_data.set_rent_epoch(u64::MAX);
-        let mut destination2_data = AccountSharedData::default();
-        destination2_data.set_delegated(true);
+        let mut destination2_data = create_delegated_account(0);
         destination2_data.set_rent_epoch(u64::MAX);
 
-        source_data.set_lamports(LAMPORTS_PER_SOL * 10);
         test_entry.add_initial_account(source, &source_data);
         test_entry.add_initial_account(destination1, &destination1_data);
         test_entry.add_initial_account(destination2, &destination2_data);
@@ -2663,6 +2678,467 @@ fn escrow_fee_charged_when_feepayer_exists_and_not_delegated() {
     test_entry.decrease_expected_lamports(&escrow_pubkey, LAMPORTS_PER_SIGNATURE);
 
     // Execute
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+#[test]
+fn enforce_access_permissions_false_allows_write_to_non_delegated() {
+    // Test that when enforce_access_permissions == false, we can write to non-delegated accounts
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = AccountSharedData::default();
+    fee_payer_account.set_lamports(LAMPORTS_PER_SOL);
+    // Delegate fee payer so we're not testing fee payer check
+    fee_payer_account.set_delegated(true);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let recipient_keypair = Keypair::new();
+    let recipient = recipient_keypair.pubkey();
+    let mut recipient_account = AccountSharedData::default();
+    recipient_account.set_lamports(0);
+    // Non-delegated account
+    recipient_account.set_delegated(false);
+    recipient_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+    test_entry.add_initial_account(recipient, &recipient_account);
+
+    // Create a transfer instruction that writes to the non-delegated recipient
+    let transfer_amount = 1_000_000;
+    let instruction = system_instruction::transfer(&fee_payer, &recipient, transfer_amount);
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    // Transaction should succeed and update balances accordingly
+    test_entry.push_transaction(transaction);
+    test_entry.decrease_expected_lamports(&fee_payer, transfer_amount + LAMPORTS_PER_SIGNATURE);
+    test_entry.increase_expected_lamports(&recipient, transfer_amount);
+
+    let mut env = SvmTestEnvironment::create(test_entry);
+    env.batch_processor.enforce_access_permissions = false;
+    env.execute();
+}
+
+#[test]
+fn enforce_access_permissions_true_rejects_write_to_non_delegated() {
+    // Test that when enforce_access_permissions == true, we cannot write to non-delegated accounts
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = AccountSharedData::default();
+    fee_payer_account.set_lamports(LAMPORTS_PER_SOL);
+    // Delegate fee payer so we're not testing fee payer check
+    fee_payer_account.set_delegated(true);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let recipient_keypair = Keypair::new();
+    let recipient = recipient_keypair.pubkey();
+    let mut recipient_account = AccountSharedData::default();
+    recipient_account.set_lamports(0);
+    // Non-delegated account
+    recipient_account.set_delegated(false);
+    recipient_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+    test_entry.add_initial_account(recipient, &recipient_account);
+
+    // Create a transfer instruction that writes to the non-delegated recipient
+    let transfer_amount = 1_000_000;
+    let instruction = system_instruction::transfer(&fee_payer, &recipient, transfer_amount);
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    // Transaction should fail and only deduct fee from fee payer
+    test_entry.push_transaction_with_status(transaction, ExecutionStatus::ExecutedFailed);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    // Create test environment with enforce_access_permissions = true (default)
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+// -------------------------
+// Non-Privileged Fee Payer Tests
+// -------------------------
+
+#[test]
+fn non_privileged_delegated_payer_with_multiple_delegated_writable_accounts() {
+    // Test that non-privileged delegated payer can write to multiple delegated accounts
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = create_delegated_account(LAMPORTS_PER_SOL);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+
+    let mut account_metas = vec![];
+    for _ in 0..3 {
+        let target = Pubkey::new_unique();
+        let target_account = create_delegated_account(LAMPORTS_PER_SOL);
+        test_entry.add_initial_account(target, &target_account);
+        account_metas.push(AccountMeta::new(target, false));
+    }
+
+    let instruction =
+        Instruction::new_with_bytes(program_address("hello-solana"), &[], account_metas);
+    test_entry.add_initial_program("hello-solana");
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    test_entry.push_transaction(transaction);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+#[test]
+fn non_privileged_payer_mixed_delegated_and_non_delegated_writable_accounts_fails() {
+    // Test that transaction fails on first non-delegated writable account
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = create_delegated_account(LAMPORTS_PER_SOL);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+
+    let mut account_metas = vec![];
+
+    // Add 2 delegated accounts
+    for _ in 0..2 {
+        let target = Pubkey::new_unique();
+        let target_account = create_delegated_account(LAMPORTS_PER_SOL);
+        test_entry.add_initial_account(target, &target_account);
+        account_metas.push(AccountMeta::new(target, false));
+    }
+
+    // Add 1 non-delegated account (should cause failure)
+    let non_delegated = Pubkey::new_unique();
+    let non_delegated_account = create_non_delegated_account(LAMPORTS_PER_SOL);
+    test_entry.add_initial_account(non_delegated, &non_delegated_account);
+    account_metas.push(AccountMeta::new(non_delegated, false));
+
+    // Add 1 more delegated (should never be evaluated)
+    let target = Pubkey::new_unique();
+    let target_account = create_delegated_account(LAMPORTS_PER_SOL);
+    test_entry.add_initial_account(target, &target_account);
+    account_metas.push(AccountMeta::new(target, false));
+
+    let instruction =
+        Instruction::new_with_bytes(program_address("hello-solana"), &[], account_metas);
+    test_entry.add_initial_program("hello-solana");
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    // Access control failure results in ExecutedFailed (transaction executes but with error)
+    test_entry.push_transaction_with_status(transaction, ExecutionStatus::ExecutedFailed);
+    // Fee is still deducted for access control violations
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+#[test]
+fn non_privileged_delegated_payer_with_read_only_non_delegated_accounts() {
+    // Test that read-only accounts bypass delegation checks even for non-privileged payers
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = create_delegated_account(LAMPORTS_PER_SOL);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+
+    let mut account_metas = vec![];
+    for _ in 0..2 {
+        let target = Pubkey::new_unique();
+        let target_account = create_non_delegated_account(LAMPORTS_PER_SOL);
+        test_entry.add_initial_account(target, &target_account);
+        account_metas.push(AccountMeta::new_readonly(target, false));
+    }
+
+    let instruction =
+        Instruction::new_with_bytes(program_address("hello-solana"), &[], account_metas);
+    test_entry.add_initial_program("hello-solana");
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    test_entry.push_transaction(transaction);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+// -------------------------
+// Escrow Account Tests
+// -------------------------
+
+#[test]
+fn escrow_account_can_pay_fees_when_delegated() {
+    // Test that delegated escrow can pay fees when payer has no on-ledger account
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+
+    // Fee payer has no on-ledger account, only escrow can pay fees
+    let escrow_address = solana_svm::escrow::ephemeral_balance_pda_from_payer(&fee_payer);
+    let mut escrow_account = create_delegated_account(LAMPORTS_PER_SOL * 10);
+    escrow_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(escrow_address, &escrow_account);
+
+    // Create a simple noop transaction that just pays fees
+    let instruction = Instruction::new_with_bytes(program_address("hello-solana"), &[], vec![]);
+    test_entry.add_initial_program("hello-solana");
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    test_entry.push_transaction(transaction);
+    // Fee is paid from escrow (since fee payer doesn't exist)
+    test_entry.decrease_expected_lamports(&escrow_address, LAMPORTS_PER_SIGNATURE);
+
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+// -------------------------
+// Boundary and Edge Cases
+// -------------------------
+
+#[test]
+fn delegated_writable_account_at_various_positions() {
+    // Test that writable delegated accounts succeed regardless of position
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = create_delegated_account(LAMPORTS_PER_SOL);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+
+    // Add read-only accounts to reach various positions
+    let mut account_metas = vec![];
+
+    // Position 1: read-only
+    for _ in 0..2 {
+        let target = Pubkey::new_unique();
+        let target_account = create_non_delegated_account(LAMPORTS_PER_SOL);
+        test_entry.add_initial_account(target, &target_account);
+        account_metas.push(AccountMeta::new_readonly(target, false));
+    }
+
+    // Position 3: writable delegated
+    let delegated_3 = Pubkey::new_unique();
+    test_entry.add_initial_account(delegated_3, &create_delegated_account(LAMPORTS_PER_SOL));
+    account_metas.push(AccountMeta::new(delegated_3, false));
+
+    // Position 4-6: read-only
+    for _ in 0..3 {
+        let target = Pubkey::new_unique();
+        let target_account = create_non_delegated_account(LAMPORTS_PER_SOL);
+        test_entry.add_initial_account(target, &target_account);
+        account_metas.push(AccountMeta::new_readonly(target, false));
+    }
+
+    // Position 7: writable delegated
+    let delegated_7 = Pubkey::new_unique();
+    test_entry.add_initial_account(delegated_7, &create_delegated_account(LAMPORTS_PER_SOL));
+    account_metas.push(AccountMeta::new(delegated_7, false));
+
+    let instruction =
+        Instruction::new_with_bytes(program_address("hello-solana"), &[], account_metas);
+    test_entry.add_initial_program("hello-solana");
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    test_entry.push_transaction(transaction);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+// -------------------------
+// Account State Transitions in Batch (SIMD-83)
+// -------------------------
+
+#[test]
+fn multiple_transactions_in_batch_with_access_checks() {
+    // Test SIMD-83 context: multiple transactions in batch processing
+    // Tx1: delegated payer with delegated account (succeeds)
+    // Tx2: delegated payer with delegated account (succeeds)
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = create_delegated_account(LAMPORTS_PER_SOL * 100);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let target1 = Pubkey::new_unique();
+    let mut target1_account = create_delegated_account(LAMPORTS_PER_SOL);
+    target1_account.set_rent_epoch(u64::MAX);
+
+    let target2 = Pubkey::new_unique();
+    let mut target2_account = create_delegated_account(LAMPORTS_PER_SOL);
+    target2_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+    test_entry.add_initial_account(target1, &target1_account);
+    test_entry.add_initial_account(target2, &target2_account);
+    test_entry.add_initial_program("hello-solana");
+
+    // Tx1: Write to delegated account (succeeds)
+    let instruction1 = Instruction::new_with_bytes(
+        program_address("hello-solana"),
+        &[],
+        vec![AccountMeta::new(target1, false)],
+    );
+    let transaction1 = Transaction::new_signed_with_payer(
+        &[instruction1],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+    test_entry.push_transaction(transaction1);
+
+    // Tx2: Write to delegated account (also succeeds)
+    let instruction2 = Instruction::new_with_bytes(
+        program_address("hello-solana"),
+        &[],
+        vec![AccountMeta::new(target2, false)],
+    );
+    let transaction2 = Transaction::new_signed_with_payer(
+        &[instruction2],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+    test_entry.push_transaction(transaction2);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE * 2);
+
+    let env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+}
+
+// -------------------------
+// Feature Flag Interactions
+// -------------------------
+
+#[test]
+fn enforce_access_permissions_false_with_multiple_non_delegated_accounts() {
+    // Test that when flag is false, multiple non-delegated writable accounts work
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_account = create_delegated_account(LAMPORTS_PER_SOL * 10);
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+
+    let mut account_metas = vec![];
+    for _ in 0..5 {
+        let target = Pubkey::new_unique();
+        let target_account = create_non_delegated_account(LAMPORTS_PER_SOL);
+        test_entry.add_initial_account(target, &target_account);
+        account_metas.push(AccountMeta::new(target, false));
+    }
+
+    let instruction =
+        Instruction::new_with_bytes(program_address("hello-solana"), &[], account_metas);
+    test_entry.add_initial_program("hello-solana");
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    test_entry.push_transaction(transaction);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    let mut env = SvmTestEnvironment::create(test_entry);
+    env.batch_processor.enforce_access_permissions = false;
+    env.execute();
+}
+
+// -----------------
+// Privileged Accounts Override Access Checks
+// -----------------
+#[test]
+fn test_privileged_fee_payer_with_non_delegated_writable_accounts() {
+    // Test that privileged fee payer can write to non-delegated writable accounts
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let (_guard, mut fee_payer_account) = create_privileged_account(LAMPORTS_PER_SOL);
+    assert!(fee_payer_account.privileged());
+    fee_payer_account.set_rent_epoch(u64::MAX);
+
+    let mut test_entry = SvmTestEntry::default();
+    test_entry.add_initial_account(fee_payer, &fee_payer_account);
+
+    let mut account_metas = vec![];
+    for _ in 0..3 {
+        let target = Pubkey::new_unique();
+        let target_account = create_non_delegated_account(LAMPORTS_PER_SOL);
+        test_entry.add_initial_account(target, &target_account);
+        account_metas.push(AccountMeta::new(target, false));
+    }
+
+    let instruction =
+        Instruction::new_with_bytes(program_address("hello-solana"), &[], account_metas);
+    test_entry.add_initial_program("hello-solana");
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        LAST_BLOCKHASH,
+    );
+
+    test_entry.push_transaction(transaction);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
     let env = SvmTestEnvironment::create(test_entry);
     env.execute();
 }

@@ -186,6 +186,10 @@ pub struct TransactionBatchProcessor<FG: ForkGraph> {
 
     /// Builtin program ids
     pub builtin_program_ids: RwLock<HashSet<Pubkey>>,
+
+    /// Whether to enforce access permissions when executing transactions
+    /// Defaults to true
+    pub enforce_access_permissions: bool,
 }
 
 impl<FG: ForkGraph> Debug for TransactionBatchProcessor<FG> {
@@ -210,6 +214,7 @@ impl<FG: ForkGraph> Default for TransactionBatchProcessor<FG> {
                 Epoch::default(),
             ))),
             builtin_program_ids: RwLock::new(HashSet::new()),
+            enforce_access_permissions: true,
         }
     }
 }
@@ -224,11 +229,12 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     ///
     /// When using this method, it's advisable to call `set_fork_graph_in_program_cache`
     /// as well as `add_builtin` to configure the cache before using the processor.
-    pub fn new_uninitialized(slot: Slot, epoch: Epoch) -> Self {
+    pub fn new_uninitialized(slot: Slot, epoch: Epoch, enforce_access_permissions: bool) -> Self {
         Self {
             slot,
             epoch,
             program_cache: Arc::new(RwLock::new(ProgramCache::new(slot, epoch))),
+            enforce_access_permissions,
             ..Self::default()
         }
     }
@@ -245,10 +251,11 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         slot: Slot,
         epoch: Epoch,
         fork_graph: Weak<RwLock<FG>>,
+        enforce_access_permissions: bool,
         program_runtime_environment_v1: Option<ProgramRuntimeEnvironment>,
         program_runtime_environment_v2: Option<ProgramRuntimeEnvironment>,
     ) -> Self {
-        let processor = Self::new_uninitialized(slot, epoch);
+        let processor = Self::new_uninitialized(slot, epoch, enforce_access_permissions);
         {
             let mut program_cache = processor.program_cache.write().unwrap();
             program_cache.set_fork_graph(fork_graph);
@@ -274,6 +281,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             sysvar_cache: RwLock::<SysvarCache>::default(),
             program_cache: self.program_cache.clone(),
             builtin_program_ids: RwLock::new(self.builtin_program_ids.read().unwrap().clone()),
+            enforce_access_permissions: self.enforce_access_permissions,
         }
     }
 
@@ -426,6 +434,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             .rent_collector
                             .unwrap_or(&RentCollector::default()),
                         &mut error_metrics,
+                        self.enforce_access_permissions,
                         callbacks,
                     )
                 }));
@@ -469,30 +478,35 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     // This check is unnecessary for other load results (like `FeesOnly`),
                     // as those states imply the transaction failed to load these other accounts,
                     // and the fee payer is validated separately.
-                    if let Err((err, offender)) = loaded_transaction.validate_accounts_access(tx) {
-                        // If an account access violation was detected, we construct a fake
-                        // execution for the convenience of the user, so that the transaction
-                        // will be persisted to the ledger with some useful debug information
-                        let execution_details = TransactionExecutionDetails {
-                            status: Err(err),
-                            log_messages: Some(vec![format!(
-                                "Account {offender} was used as writeable \
+                    if self.enforce_access_permissions {
+                        if let Err((err, offender)) =
+                            loaded_transaction.validate_accounts_access(tx)
+                        {
+                            // If an account access violation was detected, we construct a fake
+                            // execution for the convenience of the user, so that the transaction
+                            // will be persisted to the ledger with some useful debug information
+                            let execution_details = TransactionExecutionDetails {
+                                status: Err(err),
+                                log_messages: Some(vec![format!(
+                                    "Account {offender} was used as writeable \
                                  without being delegated to this ER"
-                            )]),
-                            accounts_data_len_delta: 0,
-                            return_data: None,
-                            executed_units: 0,
-                            inner_instructions: None,
-                        };
-                        let txn = ExecutedTransaction {
-                            loaded_transaction,
-                            execution_details,
-                            programs_modified_by_tx: Default::default(),
-                        };
-                        let result = ProcessedTransaction::Executed(Box::new(txn));
-                        processing_results.push(Ok(result));
-                        continue;
+                                )]),
+                                accounts_data_len_delta: 0,
+                                return_data: None,
+                                executed_units: 0,
+                                inner_instructions: None,
+                            };
+                            let txn = ExecutedTransaction {
+                                loaded_transaction,
+                                execution_details,
+                                programs_modified_by_tx: Default::default(),
+                            };
+                            let result = ProcessedTransaction::Executed(Box::new(txn));
+                            processing_results.push(Ok(result));
+                            continue;
+                        }
                     }
+
                     // observe all the account balances before executing the transaction
                     balances
                         .pre
@@ -584,6 +598,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         fee_lamports_per_signature: u64,
         rent_collector: &dyn SVMRentCollector,
         error_counters: &mut TransactionErrorMetrics,
+        enforce_access_permissions: bool,
         callbacks: &CB,
     ) -> TransactionResult<ValidatedTransactionDetails> {
         // If this is a nonce transaction, validate the nonce info.
@@ -613,6 +628,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             fee_lamports_per_signature,
             rent_collector,
             error_counters,
+            enforce_access_permissions,
             callbacks,
         )
     }
@@ -627,6 +643,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         fee_lamports_per_signature: u64,
         rent_collector: &dyn SVMRentCollector,
         error_counters: &mut TransactionErrorMetrics,
+        enforce_access_permissions: bool,
         callbacks: &CB,
     ) -> TransactionResult<ValidatedTransactionDetails> {
         let compute_budget_limits = process_compute_budget_instructions(
@@ -644,7 +661,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let is_delegated_or_privileged =
             |acc: &LoadedTransactionAccount| acc.account.delegated() || acc.account.privileged();
 
-        let mut loaded_fee_payer = if fee_lamports_per_signature == 0 {
+        let mut loaded_fee_payer = if !enforce_access_permissions {
+            // If we don't enforce access permissions we also don't
+            // support zero fee setups nor escrows
+            initial_loaded.ok_or_else(|| {
+                error_counters.invalid_account_for_fee += 1;
+                TransactionError::InvalidAccountForFee
+            })?
+        } else if fee_lamports_per_signature == 0 {
             // zero-fee: use provided account if any, otherwise an empty default
             initial_loaded.unwrap_or_else(|| LoadedTransactionAccount {
                 account: AccountSharedData::default(),
@@ -721,7 +745,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             loaded_fee_payer.rent_collected,
             fee_payer_loaded_rent_epoch,
         );
-
         Ok(ValidatedTransactionDetails {
             fee_details,
             rollback_accounts,
@@ -1681,7 +1704,7 @@ mod tests {
         let mock_bank = MockBankCallback::default();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
-            TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), None, None);
+            TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), true, None, None);
         let key = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
 
@@ -1702,7 +1725,7 @@ mod tests {
         let mock_bank = MockBankCallback::default();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
-            TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), None, None);
+            TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), true, None, None);
         let key = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
 
@@ -2191,7 +2214,7 @@ mod tests {
         let mock_bank = MockBankCallback::default();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
-            TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), None, None);
+            TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), true, None, None);
 
         let key = Pubkey::new_unique();
         let name = "a_builtin_name";
@@ -2290,6 +2313,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2386,6 +2410,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2436,6 +2461,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &RentCollector::default(),
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2469,6 +2495,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &RentCollector::default(),
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2506,6 +2533,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2540,6 +2568,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &RentCollector::default(),
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2570,6 +2599,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &RentCollector::default(),
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2645,6 +2675,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2705,6 +2736,7 @@ mod tests {
                 FeeStructure::default().lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
+                true,
                 &mock_bank,
             );
 
@@ -2749,6 +2781,7 @@ mod tests {
             FeeStructure::default().lamports_per_signature,
             &RentCollector::default(),
             &mut TransactionErrorMetrics::default(),
+            true,
             &mock_bank,
         )
         .unwrap();
@@ -2765,5 +2798,111 @@ mod tests {
             actual_inspected_accounts.as_slice(),
             &[(fee_payer_address, vec![(Some(fee_payer_account), true)])],
         );
+    }
+
+    #[test]
+    fn test_enforce_access_permissions_flag_for_fee_payer() {
+        let fee_payer = Pubkey::new_unique();
+
+        // Create undelegated fee payer account
+        let fee_payer_account = AccountSharedData::new(10_000_000, 0, &Pubkey::default());
+
+        let mut mock_accounts = HashMap::new();
+        mock_accounts.insert(fee_payer, fee_payer_account.clone());
+
+        let mock_bank = MockBankCallback {
+            account_shared_data: Arc::new(RwLock::new(mock_accounts)),
+            ..Default::default()
+        };
+
+        let sanitized_message = new_unchecked_sanitized_message(Message {
+            account_keys: vec![fee_payer],
+            header: MessageHeader::default(),
+            instructions: vec![CompiledInstruction {
+                program_id_index: 0,
+                accounts: vec![],
+                data: vec![],
+            }],
+            recent_blockhash: Hash::default(),
+        });
+
+        let sanitized_txs = vec![
+            SanitizedTransaction::new_for_tests(
+                sanitized_message,
+                vec![Signature::new_unique()],
+                false,
+            );
+            1
+        ];
+
+        // Test with enforce_access_permissions = true (default)
+        {
+            let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
+            let processing_environment = TransactionProcessingEnvironment::default();
+            let processing_config = TransactionProcessingConfig::default();
+
+            let processor: TransactionBatchProcessor<TestForkGraph> =
+                TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), true, None, None);
+
+            let batch_output = processor.load_and_execute_sanitized_transactions(
+                &mock_bank,
+                &sanitized_txs,
+                vec![Ok(CheckedTransactionDetails::default())],
+                &processing_environment,
+                &processing_config,
+            );
+
+            // With enforce_access_permissions = true, the transaction should fail with invalid account for fee
+            assert_eq!(batch_output.processing_results.len(), 1);
+            let result = &batch_output.processing_results[0];
+
+            match result {
+                Ok(_) => {
+                    panic!("Expected an error due to invalid fee payer account");
+                }
+                Err(err) => {
+                    assert_eq!(err, &TransactionError::InvalidAccountForFee);
+                }
+            }
+        }
+
+        // Test with enforce_access_permissions = false
+        {
+            let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
+            let processing_environment = TransactionProcessingEnvironment::default();
+            let processing_config = TransactionProcessingConfig::default();
+
+            let processor_permissive: TransactionBatchProcessor<TestForkGraph> =
+                TransactionBatchProcessor::new(
+                    0,
+                    0,
+                    Arc::downgrade(&fork_graph),
+                    false,
+                    None,
+                    None,
+                );
+
+            let batch_output = processor_permissive.load_and_execute_sanitized_transactions(
+                &mock_bank,
+                &sanitized_txs,
+                vec![Ok(CheckedTransactionDetails::default())],
+                &processing_environment,
+                &processing_config,
+            );
+
+            // With enforce_access_permissions = false, the transaction should no longer fail with invalid account for fee
+            // however since we pass no proper program account it still fails (but with a different error)
+            assert_eq!(batch_output.processing_results.len(), 1);
+            let result = &batch_output.processing_results[0];
+
+            match result {
+                Ok(_) => {
+                    panic!("Expected an error due to invalid program");
+                }
+                Err(err) => {
+                    assert_eq!(err, &TransactionError::InvalidProgramForExecution);
+                }
+            }
+        }
     }
 }
