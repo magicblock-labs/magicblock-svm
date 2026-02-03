@@ -854,13 +854,10 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let source = source_keypair.pubkey();
         let destination = Pubkey::new_unique();
 
-        let mut source_data = AccountSharedData::default();
-        source_data.set_delegated(true);
-        let mut destination_data = AccountSharedData::default();
-        destination_data.set_delegated(true);
+        let source_data = create_delegated_account(LAMPORTS_PER_SOL * 10);
+        let mut destination_data = create_delegated_account(0);
         destination_data.set_rent_epoch(u64::MAX);
 
-        source_data.set_lamports(LAMPORTS_PER_SOL * 10);
         test_entry.add_initial_account(source, &source_data);
         test_entry.add_initial_account(destination, &destination_data);
 
@@ -880,10 +877,7 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let source_keypair = Keypair::new();
         let source = source_keypair.pubkey();
 
-        let mut source_data = AccountSharedData::default();
-        source_data.set_delegated(true);
-
-        source_data.set_lamports(transfer_amount - 1);
+        let source_data = create_delegated_account(transfer_amount - 1);
         test_entry.add_initial_account(source, &source_data);
 
         test_entry.push_transaction_with_status(
@@ -931,10 +925,7 @@ fn simple_transfer(enable_fee_only_transactions: bool) -> Vec<SvmTestEntry> {
         let source_keypair = Keypair::new();
         let source = source_keypair.pubkey();
 
-        let mut source_data = AccountSharedData::default();
-        source_data.set_delegated(true);
-
-        source_data.set_lamports(transfer_amount * 10);
+        let source_data = create_delegated_account(transfer_amount * 10);
         test_entry
             .initial_accounts
             .insert(source, source_data.clone());
@@ -1001,9 +992,7 @@ fn simple_nonce(enable_fee_only_transactions: bool, fee_paying_nonce: bool) -> V
         let mut nonce_balance = Rent::default().minimum_balance(nonce_size);
 
         if !fake_fee_payer && !fee_paying_nonce {
-            let mut fee_payer_data = AccountSharedData::default();
-            fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
-            fee_payer_data.set_delegated(true);
+            let fee_payer_data = create_delegated_account(LAMPORTS_PER_SOL);
             test_entry.add_initial_account(fee_payer, &fee_payer_data);
         } else if rent_paying_nonce {
             assert!(fee_paying_nonce);
@@ -1226,16 +1215,12 @@ fn simd83_intrabatch_account_reuse(enable_fee_only_transactions: bool) -> Vec<Sv
         let destination1 = Pubkey::new_unique();
         let destination2 = Pubkey::new_unique();
 
-        let mut source_data = AccountSharedData::default();
-        source_data.set_delegated(true);
-        let mut destination1_data = AccountSharedData::default();
-        destination1_data.set_delegated(true);
+        let source_data = create_delegated_account(LAMPORTS_PER_SOL * 10);
+        let mut destination1_data = create_delegated_account(0);
         destination1_data.set_rent_epoch(u64::MAX);
-        let mut destination2_data = AccountSharedData::default();
-        destination2_data.set_delegated(true);
+        let mut destination2_data = create_delegated_account(0);
         destination2_data.set_rent_epoch(u64::MAX);
 
-        source_data.set_lamports(LAMPORTS_PER_SOL * 10);
         test_entry.add_initial_account(source, &source_data);
         test_entry.add_initial_account(destination1, &destination1_data);
         test_entry.add_initial_account(destination2, &destination2_data);
