@@ -662,18 +662,12 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             |acc: &LoadedTransactionAccount| acc.account.delegated() || acc.account.privileged();
 
         let mut loaded_fee_payer = if fee_lamports_per_signature == 0 {
-            if fee_lamports_per_signature == 0 {
-                Ok(initial_loaded.unwrap_or_else(|| LoadedTransactionAccount {
-                    account: AccountSharedData::default(),
-                    loaded_size: 0,
-                    rent_collected: 0,
-                }))
-            } else {
-                initial_loaded.ok_or_else(|| {
-                    error_counters.invalid_account_for_fee += 1;
-                    TransactionError::InvalidAccountForFee
-                })
-            }?
+            // zero-fee: use provided account if any, otherwise an empty default
+            initial_loaded.unwrap_or_else(|| LoadedTransactionAccount {
+                account: AccountSharedData::default(),
+                loaded_size: 0,
+                rent_collected: 0,
+            })
         } else {
             // Even if we don't enforce access permissions we still try to use the escrow account
             // if it exists
@@ -696,7 +690,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 // cases where we collect fees instead
                 account_loader.load_account(&fee_payer_address, true)
             } else {
-                None
+                allowed_or_escrow
             };
 
             loaded_account.ok_or_else(|| {
