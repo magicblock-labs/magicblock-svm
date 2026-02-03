@@ -664,8 +664,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let mut loaded_fee_payer = if !enforce_access_permissions {
             // If we don't enforce access permissions we also don't
             // support zero fee setups nor escrows
-            error_counters.invalid_account_for_fee += 1;
-            initial_loaded.ok_or(TransactionError::InvalidAccountForFee)?
+            initial_loaded.ok_or_else(|| {
+                error_counters.invalid_account_for_fee += 1;
+                TransactionError::InvalidAccountForFee
+            })?
         } else if fee_lamports_per_signature == 0 {
             // zero-fee: use provided account if any, otherwise an empty default
             initial_loaded.unwrap_or_else(|| LoadedTransactionAccount {
@@ -2870,7 +2872,7 @@ mod tests {
             let processing_environment = TransactionProcessingEnvironment::default();
             let processing_config = TransactionProcessingConfig::default();
 
-            let processor_strict: TransactionBatchProcessor<TestForkGraph> =
+            let processor_permissive: TransactionBatchProcessor<TestForkGraph> =
                 TransactionBatchProcessor::new(
                     0,
                     0,
@@ -2880,7 +2882,7 @@ mod tests {
                     None,
                 );
 
-            let batch_output = processor_strict.load_and_execute_sanitized_transactions(
+            let batch_output = processor_permissive.load_and_execute_sanitized_transactions(
                 &mock_bank,
                 &sanitized_txs,
                 vec![Ok(CheckedTransactionDetails::default())],
