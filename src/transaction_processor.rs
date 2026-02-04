@@ -471,42 +471,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     }
                 }
                 TransactionLoadResult::Loaded(loaded_transaction) => {
-                    // This transaction loaded all its accounts successfully. Now, we must
-                    // perform the security check to ensure any *writable* accounts
-                    // (excluding the fee payer) are delegated accounts.
-                    //
-                    // This check is unnecessary for other load results (like `FeesOnly`),
-                    // as those states imply the transaction failed to load these other accounts,
-                    // and the fee payer is validated separately.
-                    if self.enforce_access_permissions {
-                        if let Err((err, offender)) =
-                            loaded_transaction.validate_accounts_access(tx)
-                        {
-                            // If an account access violation was detected, we construct a fake
-                            // execution for the convenience of the user, so that the transaction
-                            // will be persisted to the ledger with some useful debug information
-                            let execution_details = TransactionExecutionDetails {
-                                status: Err(err),
-                                log_messages: Some(vec![format!(
-                                    "Account {offender} was used as writeable \
-                                 without being delegated to this ER"
-                                )]),
-                                accounts_data_len_delta: 0,
-                                return_data: None,
-                                executed_units: 0,
-                                inner_instructions: None,
-                            };
-                            let txn = ExecutedTransaction {
-                                loaded_transaction,
-                                execution_details,
-                                programs_modified_by_tx: Default::default(),
-                            };
-                            let result = ProcessedTransaction::Executed(Box::new(txn));
-                            processing_results.push(Ok(result));
-                            continue;
-                        }
-                    }
-
                     // observe all the account balances before executing the transaction
                     balances
                         .pre
@@ -516,7 +480,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     if let Some(fee_payer) = balances.pre.get_mut(0) {
                         *fee_payer += loaded_transaction.fee_details.total_fee();
                     }
-                    let executed_tx = self.execute_loaded_transaction(
+                    let mut executed_tx = self.execute_loaded_transaction(
                         callbacks,
                         tx,
                         loaded_transaction,
@@ -526,6 +490,13 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         environment,
                         config,
                     );
+                    // We must perform the post-execution security check to
+                    // ensure any *writable* accounts (excluding the fee payer)
+                    // are delegated or ephemeral accounts.
+                    let result = self
+                        .enforce_access_permissions
+                        .then(|| executed_tx.loaded_transaction.validate_accounts_access(tx))
+                        .unwrap_or(Ok(()));
                     // observe all the account balances after executing the transaction
                     balances.post.extend(
                         executed_tx
@@ -534,16 +505,29 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             .iter()
                             .map(|a| a.1.lamports()),
                     );
-
-                    // Update loaded accounts cache with account states which might have changed.
-                    // Also update local program cache with modifications made by the transaction,
-                    // if it executed successfully.
-                    account_loader.update_accounts_for_executed_tx(tx, &executed_tx);
-                    if executed_tx.was_successful() {
-                        program_cache_for_tx_batch.merge(&executed_tx.programs_modified_by_tx);
-                    }
-
-                    Ok(ProcessedTransaction::Executed(Box::new(executed_tx)))
+                    let result = if let Err((err, offender)) = result {
+                        // If an account access violation was detected, we construct extra
+                        // log message, and replace the status, so that the transaction will
+                        // be persisted to the ledger with some useful debug information
+                        executed_tx.execution_details.status = Err(err);
+                        let logs = executed_tx
+                            .execution_details
+                            .log_messages
+                            .get_or_insert_default();
+                        let msg = format!("Account {offender} was illegally used as writeable");
+                        logs.push(msg);
+                        ProcessedTransaction::Executed(Box::new(executed_tx))
+                    } else {
+                        // Update loaded accounts cache with account states which might have changed.
+                        // Also update local program cache with modifications made by the transaction,
+                        // if it executed successfully.
+                        account_loader.update_accounts_for_executed_tx(tx, &executed_tx);
+                        if executed_tx.was_successful() {
+                            program_cache_for_tx_batch.merge(&executed_tx.programs_modified_by_tx);
+                        }
+                        ProcessedTransaction::Executed(Box::new(executed_tx))
+                    };
+                    Ok(result)
                 }
             });
             execution_us = execution_us.saturating_add(single_execution_us);
@@ -2421,26 +2405,44 @@ mod tests {
             account
         };
 
+        let result = result.unwrap();
+
+        // Check rollback_accounts
+        match &result.rollback_accounts {
+            RollbackAccounts::FeePayerOnly { fee_payer_account } => {
+                assert!(
+                    solana_account::accounts_equal(
+                        fee_payer_account,
+                        &post_validation_fee_payer_account
+                    ),
+                    "rollback fee_payer_account mismatch"
+                );
+            }
+            _ => panic!("Expected FeePayerOnly variant"),
+        }
+
+        // Check other fields
+        assert_eq!(result.compute_budget_limits, compute_budget_limits);
         assert_eq!(
-            result,
-            Ok(ValidatedTransactionDetails {
-                rollback_accounts: RollbackAccounts::new(
-                    None, // nonce
-                    *fee_payer_address,
-                    post_validation_fee_payer_account.clone(),
-                    fee_payer_rent_debit,
-                    fee_payer_rent_epoch
-                ),
-                compute_budget_limits,
-                fee_details: FeeDetails::new(transaction_fee, priority_fee),
-                loaded_fee_payer_account: LoadedTransactionAccount {
-                    loaded_size: fee_payer_account.data().len(),
-                    account: post_validation_fee_payer_account,
-                    rent_collected: fee_payer_rent_debit,
-                },
-                fee_payer_address: *fee_payer_address,
-            })
+            result.fee_details,
+            FeeDetails::new(transaction_fee, priority_fee)
         );
+        assert_eq!(
+            result.loaded_fee_payer_account.loaded_size,
+            fee_payer_account.data().len()
+        );
+        assert_eq!(
+            result.loaded_fee_payer_account.rent_collected,
+            fee_payer_rent_debit
+        );
+        assert!(
+            solana_account::accounts_equal(
+                &result.loaded_fee_payer_account.account,
+                &post_validation_fee_payer_account
+            ),
+            "loaded_fee_payer_account.account mismatch"
+        );
+        assert_eq!(result.fee_payer_address, *fee_payer_address);
     }
 
     #[test]

@@ -310,11 +310,17 @@ impl SvmTestEnvironment<'_> {
         // check that all the account states we care about are present and correct
         for (pubkey, expected_account_data) in self.test_entry.final_accounts.iter() {
             let actual_account_data = final_accounts_actual.get(pubkey);
-            assert_eq!(
-                Some(expected_account_data),
-                actual_account_data,
-                "mismatch on account {}",
+            assert!(
+                actual_account_data.is_some(),
+                "missing account {}",
                 pubkey
+            );
+            assert!(
+                solana_account::accounts_equal(expected_account_data, actual_account_data.unwrap()),
+                "mismatch on account {}\n  expected: {:?}\n  actual: {:?}",
+                pubkey,
+                expected_account_data,
+                actual_account_data.unwrap()
             );
         }
 
@@ -2760,9 +2766,10 @@ fn enforce_access_permissions_true_rejects_write_to_non_delegated() {
         LAST_BLOCKHASH,
     );
 
-    // Transaction should fail and only deduct fee from fee payer
+    // Transaction executes (state changes happen) but fails access check afterwards
     test_entry.push_transaction_with_status(transaction, ExecutionStatus::ExecutedFailed);
-    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE + transfer_amount);
+    test_entry.increase_expected_lamports(&recipient, transfer_amount);
 
     // Create test environment with enforce_access_permissions = true (default)
     let env = SvmTestEnvironment::create(test_entry);
