@@ -505,7 +505,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             .iter()
                             .map(|a| a.1.lamports()),
                     );
-                    if let Err((err, offender)) = result {
+                    let result = if let Err((err, offender)) = result {
                         // If an account access violation was detected, we construct extra
                         // log message, and replace the status, so that the transaction will
                         // be persisted to the ledger with some useful debug information
@@ -516,20 +516,18 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             .get_or_insert_default();
                         let msg = format!("Account {offender} was illegally used as writeable");
                         logs.push(msg);
-                        let result = ProcessedTransaction::Executed(Box::new(executed_tx));
-                        processing_results.push(Ok(result));
-                        continue;
-                    }
-
-                    // Update loaded accounts cache with account states which might have changed.
-                    // Also update local program cache with modifications made by the transaction,
-                    // if it executed successfully.
-                    account_loader.update_accounts_for_executed_tx(tx, &executed_tx);
-                    if executed_tx.was_successful() {
-                        program_cache_for_tx_batch.merge(&executed_tx.programs_modified_by_tx);
-                    }
-
-                    Ok(ProcessedTransaction::Executed(Box::new(executed_tx)))
+                        ProcessedTransaction::Executed(Box::new(executed_tx))
+                    } else {
+                        // Update loaded accounts cache with account states which might have changed.
+                        // Also update local program cache with modifications made by the transaction,
+                        // if it executed successfully.
+                        account_loader.update_accounts_for_executed_tx(tx, &executed_tx);
+                        if executed_tx.was_successful() {
+                            program_cache_for_tx_batch.merge(&executed_tx.programs_modified_by_tx);
+                        }
+                        ProcessedTransaction::Executed(Box::new(executed_tx))
+                    };
+                    Ok(result)
                 }
             });
             execution_us = execution_us.saturating_add(single_execution_us);
