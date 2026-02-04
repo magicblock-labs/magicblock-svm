@@ -497,6 +497,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         .enforce_access_permissions
                         .then(|| executed_tx.loaded_transaction.validate_accounts_access(tx))
                         .unwrap_or(Ok(()));
+                    // observe all the account balances after executing the transaction
+                    balances.post.extend(
+                        executed_tx
+                            .loaded_transaction
+                            .accounts
+                            .iter()
+                            .map(|a| a.1.lamports()),
+                    );
                     if let Err((err, offender)) = result {
                         // If an account access violation was detected, we construct extra
                         // log message, and replace the status, so that the transaction will
@@ -512,14 +520,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         processing_results.push(Ok(result));
                         continue;
                     }
-                    // observe all the account balances after executing the transaction
-                    balances.post.extend(
-                        executed_tx
-                            .loaded_transaction
-                            .accounts
-                            .iter()
-                            .map(|a| a.1.lamports()),
-                    );
 
                     // Update loaded accounts cache with account states which might have changed.
                     // Also update local program cache with modifications made by the transaction,
