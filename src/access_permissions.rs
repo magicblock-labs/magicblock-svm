@@ -1,3 +1,4 @@
+use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 use solana_svm_transaction::svm_message::SVMMessage;
 use solana_transaction_error::TransactionError;
@@ -17,8 +18,11 @@ impl LoadedTransaction {
     /// This function enforces a security rule with a key exception: **if the fee payer
     /// has privileged access, this check is bypassed entirely.**
     ///
-    /// For standard, non-privileged transactions, it enforces that **any account
-    /// marked as writable (excluding the fee payer) must be a delegated account.**
+    /// For standard, non-privileged transactions, it enforces that any account
+    /// marked as writable (excluding the fee payer) must be either:
+    /// 1. delegated
+    /// 2. undelegating
+    /// 3. ephemeral
     ///
     /// Read-only accounts are ignored. The fee payer's writability is handled in
     /// separate validation logic.
@@ -32,11 +36,13 @@ impl LoadedTransaction {
             return Ok(());
         }
 
+        let mutation_allowed =
+            |acc: &AccountSharedData| acc.delegated() || acc.undelegating() || acc.ephemeral();
+
         // For non-privileged payers, validate the rest of the accounts.
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (pk, acc)) in self.accounts.iter().enumerate().skip(1) {
-            // Enforce that any account intended to be writable must be a delegated account.
-            if message.is_writable(i) && !acc.delegated() {
+            if message.is_writable(i) && !mutation_allowed(acc) {
                 return Err((TransactionError::InvalidWritableAccount, *pk));
             }
         }
