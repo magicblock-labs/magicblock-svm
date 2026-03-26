@@ -514,8 +514,13 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             .execution_details
                             .log_messages
                             .get_or_insert_default();
-                        let msg = format!("Account {offender} was illegally used as writeable");
-                        logs.push(msg);
+                        logs.push(format!(
+                            "Program log: Account {offender} was illegally used as writeable"
+                        ));
+                        logs.push(
+                            "Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount"
+                                .to_string(),
+                        );
                         ProcessedTransaction::Executed(Box::new(executed_tx))
                     } else {
                         // Update loaded accounts cache with account states which might have changed.
