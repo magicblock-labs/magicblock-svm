@@ -1,7 +1,6 @@
 use {
     crate::transaction_execution_result::TransactionLoadedAccountsStats,
-    solana_fee_structure::FeeDetails, solana_rent_debits::RentDebits,
-    solana_sdk::inner_instruction::InnerInstructionsList,
+    solana_fee_structure::FeeDetails, solana_message::inner_instruction::InnerInstructionsList,
     solana_transaction_context::TransactionReturnData, solana_transaction_error::TransactionResult,
 };
 
@@ -16,8 +15,8 @@ pub struct CommittedTransaction {
     pub return_data: Option<TransactionReturnData>,
     pub executed_units: u64,
     pub fee_details: FeeDetails,
-    pub rent_debits: RentDebits,
     pub loaded_account_stats: TransactionLoadedAccountsStats,
+    pub fee_payer_post_balance: u64,
 }
 
 pub trait TransactionCommitResultExtensions {

@@ -26,3 +26,4 @@ test-ledger/
 .github/packages/npm-package/lib
 .github/packages/npm-package/node_modules
 .github/packages/npm-package/package-lock.json
+Cargo.lock
