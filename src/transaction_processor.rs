@@ -2,9 +2,8 @@ use {
     crate::{
         account_loader::{
             load_transaction, update_rent_exempt_status_for_account, validate_fee_payer,
-            AccountLoader, CheckedTransactionDetails, LoadedTransaction,
-            LoadedTransactionAccount, TransactionCheckResult, TransactionLoadResult,
-            ValidatedTransactionDetails,
+            AccountLoader, CheckedTransactionDetails, LoadedTransaction, LoadedTransactionAccount,
+            TransactionCheckResult, TransactionLoadResult, ValidatedTransactionDetails,
         },
         account_overrides::AccountOverrides,
         message_processor::process_message,
@@ -510,7 +509,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         };
                     }
 
-                    let executed_tx = self.execute_loaded_transaction(
+                    let mut executed_tx = self.execute_loaded_transaction(
                         callbacks,
                         tx,
                         loaded_transaction,
@@ -521,6 +520,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         config,
                     );
 
+                    executed_tx.validate_accounts_access(tx);
                     // Update loaded accounts cache with account states which might have changed.
                     // Also update local program cache with modifications made by the transaction,
                     // if it executed successfully.
@@ -653,11 +653,16 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         loaded_size: 0,
                     }
                 }
-            });
+        });
         if total_fee != 0 && loaded_fee_payer.account.lamports() == 0 {
             return Err(TransactionError::AccountNotFound);
         }
-
+        if total_fee != 0
+            && !(loaded_fee_payer.account.delegated() || loaded_fee_payer.account.privileged())
+        {
+            error_counters.invalid_account_for_fee += 1;
+            return Err(TransactionError::InvalidAccountForFee);
+        }
         let fee_payer_loaded_rent_epoch = loaded_fee_payer.account.rent_epoch();
         update_rent_exempt_status_for_account(rent, &mut loaded_fee_payer.account);
 
@@ -1972,12 +1977,13 @@ mod tests {
         );
 
         let fee_payer_rent_epoch = current_epoch;
-        let fee_payer_account = AccountSharedData::new_rent_epoch(
+        let mut fee_payer_account = AccountSharedData::new_rent_epoch(
             starting_balance,
             0,
             &Pubkey::default(),
             fee_payer_rent_epoch,
         );
+        fee_payer_account.set_delegated(true);
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mut mock_bank = MockBankCallback {
@@ -2061,7 +2067,8 @@ mod tests {
         let min_balance = rent.minimum_balance(0);
         let transaction_fee = lamports_per_signature;
         let starting_balance = min_balance - 1;
-        let fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
+        let mut fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
+        fee_payer_account.set_delegated(true);
 
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
@@ -2186,7 +2193,8 @@ mod tests {
                     0,
                 ),
                 compute_budget: SVMTransactionExecutionBudget::default(),
-                loaded_accounts_bytes_limit: compute_budget_and_limits.loaded_accounts_data_size_limit,
+                loaded_accounts_bytes_limit: compute_budget_and_limits
+                    .loaded_accounts_data_size_limit,
                 fee_details: FeeDetails::default(),
                 loaded_fee_payer_account: LoadedTransactionAccount {
                     account: AccountSharedData::new(0, 0, &system_program::id()),
@@ -2234,7 +2242,8 @@ mod tests {
                     0,
                 ),
                 compute_budget: SVMTransactionExecutionBudget::default(),
-                loaded_accounts_bytes_limit: compute_budget_and_limits.loaded_accounts_data_size_limit,
+                loaded_accounts_bytes_limit: compute_budget_and_limits
+                    .loaded_accounts_data_size_limit,
                 fee_details: FeeDetails::default(),
                 loaded_fee_payer_account: LoadedTransactionAccount {
                     account: fee_payer_account,
@@ -2250,7 +2259,8 @@ mod tests {
         let message =
             new_unchecked_sanitized_message(Message::new(&[], Some(&Pubkey::new_unique())));
         let fee_payer_address = message.fee_payer();
-        let fee_payer_account = AccountSharedData::new(1, 0, &Pubkey::default());
+        let mut fee_payer_account = AccountSharedData::new(1, 0, &Pubkey::default());
+        fee_payer_account.set_delegated(true);
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
@@ -2294,7 +2304,8 @@ mod tests {
         let rent = Rent::default();
         let min_balance = rent.minimum_balance(0);
         let starting_balance = min_balance + transaction_fee - 1;
-        let fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
+        let mut fee_payer_account = AccountSharedData::new(starting_balance, 0, &Pubkey::default());
+        fee_payer_account.set_delegated(true);
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
@@ -2336,7 +2347,8 @@ mod tests {
         let message =
             new_unchecked_sanitized_message(Message::new(&[], Some(&Pubkey::new_unique())));
         let fee_payer_address = message.fee_payer();
-        let fee_payer_account = AccountSharedData::new(1_000_000, 0, &Pubkey::new_unique());
+        let mut fee_payer_account = AccountSharedData::new(1_000_000, 0, &Pubkey::new_unique());
+        fee_payer_account.set_delegated(true);
         let mut mock_accounts = HashMap::new();
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
@@ -2368,6 +2380,92 @@ mod tests {
 
         assert_eq!(error_counters.invalid_account_for_fee.0, 1);
         assert_eq!(result, Err(TransactionError::InvalidAccountForFee));
+    }
+
+    #[test]
+    fn test_validate_transaction_fee_payer_requires_delegated_or_privileged() {
+        let lamports_per_signature = 5000;
+        let message =
+            new_unchecked_sanitized_message(Message::new(&[], Some(&Pubkey::new_unique())));
+        let fee_payer_address = message.fee_payer();
+        let fee_payer_account = AccountSharedData::new(1_000_000, 0, &system_program::id());
+        let mut mock_accounts = HashMap::new();
+        mock_accounts.insert(*fee_payer_address, fee_payer_account);
+        let mock_bank = MockBankCallback {
+            account_shared_data: Arc::new(RwLock::new(mock_accounts)),
+            ..Default::default()
+        };
+        let mut account_loader = (&mock_bank).into();
+
+        let mut error_counters = TransactionErrorMetrics::default();
+        let result =
+            TransactionBatchProcessor::<TestForkGraph>::validate_transaction_nonce_and_fee_payer(
+                &mut account_loader,
+                &message,
+                CheckedTransactionDetails::new(
+                    None,
+                    SVMTransactionExecutionAndFeeBudgetLimits::with_fee(
+                        MockBankCallback::calculate_fee_details(
+                            &message,
+                            lamports_per_signature,
+                            0,
+                        ),
+                    ),
+                ),
+                &Hash::default(),
+                lamports_per_signature,
+                &Rent::default(),
+                &mut error_counters,
+            );
+
+        assert_eq!(error_counters.invalid_account_for_fee.0, 1);
+        assert_eq!(result, Err(TransactionError::InvalidAccountForFee));
+    }
+
+    #[test]
+    fn test_validate_transaction_fee_payer_allows_delegated_or_privileged() {
+        let lamports_per_signature = 5000;
+        let message =
+            new_unchecked_sanitized_message(Message::new(&[], Some(&Pubkey::new_unique())));
+        let fee_payer_address = message.fee_payer();
+
+        for set_flag in [
+            AccountSharedData::set_delegated as fn(&mut AccountSharedData, bool),
+            AccountSharedData::set_privileged as fn(&mut AccountSharedData, bool),
+        ] {
+            let mut fee_payer_account = AccountSharedData::new(1_000_000, 0, &system_program::id());
+            set_flag(&mut fee_payer_account, true);
+            let mut mock_accounts = HashMap::new();
+            mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
+            let mock_bank = MockBankCallback {
+                account_shared_data: Arc::new(RwLock::new(mock_accounts)),
+                ..Default::default()
+            };
+            let mut account_loader = (&mock_bank).into();
+
+            let mut error_counters = TransactionErrorMetrics::default();
+            let result = TransactionBatchProcessor::<TestForkGraph>::validate_transaction_nonce_and_fee_payer(
+                &mut account_loader,
+                &message,
+                CheckedTransactionDetails::new(
+                    None,
+                    SVMTransactionExecutionAndFeeBudgetLimits::with_fee(
+                        MockBankCallback::calculate_fee_details(
+                            &message,
+                            lamports_per_signature,
+                            0,
+                        ),
+                    ),
+                ),
+                &Hash::default(),
+                lamports_per_signature,
+                &Rent::default(),
+                &mut error_counters,
+            );
+
+            assert_eq!(error_counters.invalid_account_for_fee.0, 0);
+            assert!(result.is_ok());
+        }
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -2518,12 +2616,13 @@ mod tests {
 
         // Sufficient Fees
         {
-            let fee_payer_account = AccountSharedData::new_data(
+            let mut fee_payer_account = AccountSharedData::new_data(
                 min_balance + transaction_fee + priority_fee,
                 &nonce_versions,
                 &system_program::id(),
             )
             .unwrap();
+            fee_payer_account.set_delegated(true);
 
             let mut future_nonce = NonceInfo::new(*fee_payer_address, fee_payer_account.clone());
             future_nonce
@@ -2591,12 +2690,13 @@ mod tests {
 
         // Insufficient Fees
         {
-            let fee_payer_account = AccountSharedData::new_data(
+            let mut fee_payer_account = AccountSharedData::new_data(
                 transaction_fee + priority_fee, // no min_balance this time
                 &nonce_versions,
                 &system_program::id(),
             )
             .unwrap();
+            fee_payer_account.set_delegated(true);
 
             let mut mock_accounts = HashMap::new();
             mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
@@ -2632,12 +2732,13 @@ mod tests {
     fn test_inspect_account_fee_payer() {
         let lamports_per_signature = 5000;
         let fee_payer_address = Pubkey::new_unique();
-        let fee_payer_account = AccountSharedData::new_rent_epoch(
+        let mut fee_payer_account = AccountSharedData::new_rent_epoch(
             123_000_000_000,
             0,
             &Pubkey::default(),
             RENT_EXEMPT_RENT_EPOCH,
         );
+        fee_payer_account.set_delegated(true);
         let mock_bank = MockBankCallback::default();
         mock_bank
             .account_shared_data

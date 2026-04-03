@@ -299,6 +299,13 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
         }
     }
 
+    fn missing_account_template(&self, account_key: &Pubkey) -> Option<AccountSharedData> {
+        self.loaded_accounts
+            .get(account_key)
+            .filter(|account| account.lamports() == 0)
+            .cloned()
+    }
+
     fn update_accounts_for_successful_tx(
         &mut self,
         message: &impl SVMMessage,
@@ -748,7 +755,14 @@ fn load_transaction_account<CB: TransactionProcessingCallback>(
         }
         loaded_account
     } else {
+        let template = account_loader.missing_account_template(account_key);
         let mut default_account = AccountSharedData::default();
+        if let Some(template) = template {
+            default_account.set_delegated(template.delegated());
+            default_account.set_undelegating(template.undelegating());
+            default_account.set_ephemeral(template.ephemeral());
+            default_account.set_privileged(template.privileged());
+        }
         default_account.set_rent_epoch(RENT_EXEMPT_RENT_EPOCH);
         LoadedTransactionAccount {
             loaded_size: default_account.data().len(),

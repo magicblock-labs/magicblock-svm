@@ -52,7 +52,12 @@ use {
     solana_transaction::{sanitized::SanitizedTransaction, Transaction},
     solana_transaction_context::TransactionReturnData,
     solana_transaction_error::TransactionError,
-    std::{collections::HashMap, num::NonZeroU32, slice, sync::atomic::Ordering},
+    std::{
+        collections::{HashMap, HashSet},
+        num::NonZeroU32,
+        slice,
+        sync::atomic::Ordering,
+    },
     test_case::test_case,
 };
 
@@ -103,6 +108,12 @@ const LAST_BLOCKHASH: Hash = Hash::new_from_array([7; 32]); // Arbitrary constan
 
 pub type AccountsMap = HashMap<Pubkey, AccountSharedData>;
 
+#[derive(Default)]
+struct TestAccessFlags {
+    writable: HashSet<Pubkey>,
+    privileged_payers: HashSet<Pubkey>,
+}
+
 // container for everything needed to execute a test entry
 // care should be taken if reused, because we update bank account states, but otherwise leave it as-is
 // the environment is made available for tests that check it after processing
@@ -116,7 +127,8 @@ pub struct SvmTestEnvironment<'a> {
 }
 
 impl SvmTestEnvironment<'_> {
-    pub fn create(test_entry: SvmTestEntry) -> Self {
+    pub fn create(mut test_entry: SvmTestEntry) -> Self {
+        let access = test_entry.prepare_access_flags();
         let mock_bank = MockBankCallback::default();
 
         for (name, slot, authority) in &test_entry.initial_programs {
@@ -129,6 +141,23 @@ impl SvmTestEnvironment<'_> {
                 .write()
                 .unwrap()
                 .insert(*pubkey, account.clone());
+        }
+
+        {
+            let mut accounts = mock_bank.account_shared_data.write().unwrap();
+            for key in &access.writable {
+                let account = accounts.entry(*key).or_insert_with(|| {
+                    let mut account = AccountSharedData::default();
+                    account.set_rent_epoch(u64::MAX);
+                    account
+                });
+                account.set_delegated(true);
+            }
+            for key in &access.privileged_payers {
+                if let Some(account) = accounts.get_mut(key) {
+                    account.set_privileged(true);
+                }
+            }
         }
 
         let fork_graph = Arc::new(RwLock::new(MockForkGraph {}));
@@ -176,7 +205,25 @@ impl SvmTestEnvironment<'_> {
         }
     }
 
-    pub fn execute(&self) -> LoadAndExecuteSanitizedTransactionsOutput {
+    pub fn execute(&mut self) -> LoadAndExecuteSanitizedTransactionsOutput {
+        let access = self.test_entry.prepare_access_flags();
+        {
+            let mut accounts = self.mock_bank.account_shared_data.write().unwrap();
+            for key in &access.writable {
+                let account = accounts.entry(*key).or_insert_with(|| {
+                    let mut account = AccountSharedData::default();
+                    account.set_rent_epoch(u64::MAX);
+                    account
+                });
+                account.set_delegated(true);
+            }
+            for key in &access.privileged_payers {
+                if let Some(account) = accounts.get_mut(key) {
+                    account.set_privileged(true);
+                }
+            }
+        }
+
         let (transactions, check_results) = self.test_entry.prepare_transactions();
         let batch_output = self
             .batch_processor
@@ -386,12 +433,14 @@ impl SvmTestEntry {
     // inserts it into both account maps, assuming it lives unchanged (except for svm fixing rent epoch)
     // rent-paying accounts must be added by hand because svm will not set rent epoch to u64::MAX
     pub fn add_initial_account(&mut self, pubkey: Pubkey, account: &AccountSharedData) {
+        let mut account = account.clone();
+        account.set_delegated(true);
         assert!(self
             .initial_accounts
             .insert(pubkey, account.clone())
             .is_none());
 
-        self.create_expected_account(pubkey, account);
+        self.create_expected_account(pubkey, &account);
     }
 
     // add an immutable program that will have been deployed before the slot we execute transactions in
@@ -405,6 +454,7 @@ impl SvmTestEntry {
     pub fn create_expected_account(&mut self, pubkey: Pubkey, account: &AccountSharedData) {
         let mut account = account.clone();
         account.set_rent_epoch(u64::MAX);
+        account.set_delegated(true);
 
         assert!(self.final_accounts.insert(pubkey, account).is_none());
     }
@@ -413,6 +463,7 @@ impl SvmTestEntry {
     pub fn update_expected_account_data(&mut self, pubkey: Pubkey, account: &AccountSharedData) {
         let mut account = account.clone();
         account.set_rent_epoch(u64::MAX);
+        account.set_delegated(true);
 
         assert!(self.final_accounts.insert(pubkey, account).is_some());
     }
@@ -532,6 +583,49 @@ impl SvmTestEntry {
                 (message, check_result)
             })
             .unzip()
+    }
+
+    fn prepare_access_flags(&mut self) -> TestAccessFlags {
+        let (transactions, _) = self.prepare_transactions();
+        let mut access = TestAccessFlags::default();
+
+        for tx in &transactions {
+            for (i, key) in tx.account_keys().iter().enumerate() {
+                if tx.is_writable(i) {
+                    access.writable.insert(*key);
+                }
+            }
+
+            if SVMMessage::program_instructions_iter(tx)
+                .any(|(program_id, _)| bpf_loader_upgradeable::check_id(program_id))
+            {
+                access.privileged_payers.insert(*tx.fee_payer());
+            }
+        }
+
+        for key in &access.writable {
+            if let Some(account) = self.initial_accounts.get_mut(key) {
+                account.set_delegated(true);
+            }
+            if let Some(account) = self.final_accounts.get_mut(key) {
+                if account.lamports() > 0 {
+                    account.set_delegated(true);
+                }
+            }
+        }
+
+        for key in &access.privileged_payers {
+            if let Some(account) = self.initial_accounts.get_mut(key) {
+                account.set_privileged(true);
+            }
+            if let Some(account) = self.final_accounts.get_mut(key) {
+                if account.lamports() > 0 {
+                    account.set_privileged(true);
+                }
+            }
+        }
+
+        access
     }
 
     // internal helper to gather test items for post-execution checks
@@ -2352,7 +2446,7 @@ fn simd83_account_reallocate(formalize_loaded_transaction_data_size: bool) -> Ve
 #[test_case(simd83_account_reallocate(true))]
 fn svm_integration(test_entries: Vec<SvmTestEntry>) {
     for test_entry in test_entries {
-        let env = SvmTestEnvironment::create(test_entry);
+        let mut env = SvmTestEnvironment::create(test_entry);
         env.execute();
     }
 }
@@ -2930,9 +3024,18 @@ impl From<Inspect<'_>> for (Option<AccountSharedData>, bool) {
     fn from(inspect: Inspect) -> Self {
         match inspect {
             Inspect::LiveRead(account) => (Some(account.clone()), false),
-            Inspect::LiveWrite(account) => (Some(account.clone()), true),
+            Inspect::LiveWrite(account) => {
+                let mut account = account.clone();
+                account.set_delegated(true);
+                (Some(account), true)
+            }
             Inspect::DeadRead => (None, false),
-            Inspect::DeadWrite => (None, true),
+            Inspect::DeadWrite => {
+                let mut account = AccountSharedData::default();
+                account.set_rent_epoch(u64::MAX);
+                account.set_delegated(true);
+                (Some(account), true)
+            }
         }
     }
 }
@@ -3079,7 +3182,7 @@ fn svm_inspect_nonce_load_failure(
         .data_as_mut_slice()
         .copy_from_slice(advanced_nonce_info.account().data());
 
-    let env = SvmTestEnvironment::create(test_entry.clone());
+    let mut env = SvmTestEnvironment::create(test_entry.clone());
     env.execute();
 
     let actual_inspected_accounts = env.mock_bank.inspected_accounts.read().unwrap().clone();
