@@ -68,6 +68,32 @@ impl ReadableAccount for TransactionAccountView<'_> {
     }
 }
 
+impl TransactionAccountView<'_> {
+    pub fn to_account_shared_data(&self) -> AccountSharedData {
+        self.private_fields.account.clone()
+    }
+
+    pub fn delegated(&self) -> bool {
+        self.private_fields.account.delegated()
+    }
+
+    pub fn undelegating(&self) -> bool {
+        self.private_fields.account.undelegating()
+    }
+
+    pub fn confined(&self) -> bool {
+        self.private_fields.account.confined()
+    }
+
+    pub fn ephemeral(&self) -> bool {
+        self.private_fields.account.ephemeral()
+    }
+
+    pub fn remote_slot(&self) -> u64 {
+        self.private_fields.account.remote_slot()
+    }
+}
+
 impl PartialEq<AccountSharedData> for TransactionAccountView<'_> {
     fn eq(&self, other: &AccountSharedData) -> bool {
         other.lamports() == self.lamports()
@@ -85,7 +111,7 @@ pub struct TransactionAccountViewMut<'a> {
 }
 
 impl TransactionAccountViewMut<'_> {
-    pub(crate) fn resize(&mut self, new_len: usize, value: u8) {
+    pub fn resize(&mut self, new_len: usize, value: u8) {
         self.private_fields.account.resize(new_len, value);
         // SAFETY: We are synchronizing the lengths.
         unsafe {
@@ -119,6 +145,50 @@ impl TransactionAccountViewMut<'_> {
     #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     pub(crate) fn is_shared(&self) -> bool {
         self.private_fields.account.is_shared()
+    }
+
+    pub fn to_account_shared_data(&self) -> AccountSharedData {
+        self.private_fields.account.clone()
+    }
+
+    pub fn delegated(&self) -> bool {
+        self.private_fields.account.delegated()
+    }
+
+    pub fn undelegating(&self) -> bool {
+        self.private_fields.account.undelegating()
+    }
+
+    pub fn confined(&self) -> bool {
+        self.private_fields.account.confined()
+    }
+
+    pub fn ephemeral(&self) -> bool {
+        self.private_fields.account.ephemeral()
+    }
+
+    pub fn remote_slot(&self) -> u64 {
+        self.private_fields.account.remote_slot()
+    }
+
+    pub fn set_delegated(&mut self, delegated: bool) {
+        self.private_fields.account.set_delegated(delegated);
+    }
+
+    pub fn set_undelegating(&mut self, undelegating: bool) {
+        self.private_fields.account.set_undelegating(undelegating);
+    }
+
+    pub fn set_confined(&mut self, confined: bool) {
+        self.private_fields.account.set_confined(confined);
+    }
+
+    pub fn set_ephemeral(&mut self, ephemeral: bool) {
+        self.private_fields.account.set_ephemeral(ephemeral);
+    }
+
+    pub fn set_remote_slot(&mut self, remote_slot: u64) {
+        self.private_fields.account.set_remote_slot(remote_slot);
     }
 }
 
@@ -161,7 +231,9 @@ impl WritableAccount for TransactionAccountViewMut<'_> {
 
     fn copy_into_owner_from_slice(&mut self, source: &[u8]) {
         self.abi_account.owner.as_mut().copy_from_slice(source);
-        self.private_fields.account.copy_into_owner_from_slice(source);
+        self.private_fields
+            .account
+            .copy_into_owner_from_slice(source);
     }
 
     fn set_executable(&mut self, executable: bool) {
@@ -218,9 +290,7 @@ impl TransactionAccounts {
                             item.1.data().len() as u64,
                         ),
                     }),
-                    UnsafeCell::new(AccountPrivateFields {
-                        account: item.1,
-                    }),
+                    UnsafeCell::new(AccountPrivateFields { account: item.1 }),
                 )
             })
             .collect::<(
@@ -383,7 +453,10 @@ impl TransactionAccounts {
             .map(|(shared_fields_cell, private_fields_cell)| {
                 let shared_fields = shared_fields_cell.get_mut();
                 let private_fields = private_fields_cell.get_mut();
-                (shared_fields.key, std::mem::take(&mut private_fields.account))
+                (
+                    shared_fields.key,
+                    std::mem::take(&mut private_fields.account),
+                )
             })
             .collect()
     }

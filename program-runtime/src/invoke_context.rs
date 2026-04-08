@@ -842,9 +842,8 @@ macro_rules! with_mock_invoke_context {
         $transaction_context:ident,
         $transaction_accounts:expr $(,)?
     ) => {
-        use $crate::with_mock_invoke_context_with_feature_set;
         let feature_set = &solana_svm_feature_set::SVMFeatureSet::default();
-        with_mock_invoke_context_with_feature_set!(
+        $crate::with_mock_invoke_context_with_feature_set!(
             $invoke_context,
             $transaction_context,
             feature_set,
@@ -942,6 +941,7 @@ pub fn mock_process_instruction_with_feature_set<
     transaction_accounts
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut InvokeContext)>(
     loader_id: &Pubkey,
     program_index: Option<IndexOfAccount>,

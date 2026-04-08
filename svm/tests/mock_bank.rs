@@ -34,9 +34,9 @@ use {
     std::{
         cmp::Ordering,
         collections::HashMap,
-        env,
         fs::{self, File},
         io::Read,
+        path::PathBuf,
     },
 };
 
@@ -187,8 +187,8 @@ impl MockBankCallback {
 }
 
 pub fn load_program(name: String) -> Vec<u8> {
-    // Loading the program file
-    let mut dir = env::current_dir().unwrap();
+    let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    dir.push("../..");
     dir.push("tests");
     dir.push("example-programs");
     dir.push(name.as_str());
