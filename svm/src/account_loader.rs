@@ -2490,8 +2490,10 @@ mod tests {
             })
             .unwrap();
         let mut programdata = programdata2_account.data().to_vec();
-        let mut file =
-            File::open("tests/example-programs/hello-solana/hello_solana_program.so").unwrap();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("tests/example-programs/hello-solana/hello_solana_program.so");
+        let mut file = File::open(path).unwrap();
         file.read_to_end(&mut programdata).unwrap();
         let programdata2_size = programdata.len() as u32;
         programdata2_account.set_data(programdata);

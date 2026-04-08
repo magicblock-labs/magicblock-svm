@@ -2,7 +2,7 @@
 name = "solana-program-runtime"
 description = "Solana program runtime"
 documentation = "https://docs.rs/solana-program-runtime"
-version = { workspace = true }
+version = "3.1.12"
 authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }

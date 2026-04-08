@@ -774,6 +774,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         program_accounts_set
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn replenish_program_cache<CB: TransactionProcessingCallback>(
         &self,

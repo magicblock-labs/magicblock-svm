@@ -49,7 +49,7 @@ mod tests;
 #[repr(C)]
 #[cfg_attr(
     feature = "serde",
-    derive(serde_derive::Deserialize),
+    derive(serde::Deserialize),
     serde(rename_all = "camelCase")
 )]
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
@@ -78,7 +78,7 @@ mod account_serialize {
         solana_pubkey::Pubkey,
     };
     #[repr(C)]
-    #[derive(serde_derive::Serialize)]
+    #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Account<'a> {
         lamports: u64,
@@ -132,11 +132,7 @@ impl Serialize for AccountSharedData {
 /// An Account with data that is stored on chain
 /// This will be the in-memory representation of the 'Account' struct data.
 /// The existing 'Account' structure cannot easily change due to downstream projects.
-#[cfg_attr(
-    feature = "serde",
-    derive(serde_derive::Deserialize),
-    serde(from = "Account")
-)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize), serde(from = "Account"))]
 #[derive(PartialEq, Eq, Clone)]
 pub enum AccountSharedData {
     Borrowed(AccountBorrowed),

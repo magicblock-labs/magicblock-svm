@@ -361,6 +361,7 @@ impl ProgramCacheEntry {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_internal(
         loader_key: &Pubkey,
         program_runtime_environment: Arc<BuiltinProgram<InvokeContext<'static, 'static>>>,
@@ -1394,6 +1395,7 @@ mod tests {
             fs::File,
             io::Read,
             ops::ControlFlow,
+            path::PathBuf,
             sync::{
                 atomic::{AtomicU64, Ordering},
                 Arc, RwLock,
@@ -1424,8 +1426,9 @@ mod tests {
 
     fn new_loaded_entry(env: ProgramRuntimeEnvironment) -> ProgramCacheEntryType {
         let mut elf = Vec::new();
-        let path = std::path::PathBuf::from("../../elfs/noop_aligned.so");
-        eprintln!("PROGRAM: {path:?}");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("elfs/noop_aligned.so");
         File::open(path).unwrap().read_to_end(&mut elf).unwrap();
         let executable = Executable::load(&elf, env).unwrap();
         ProgramCacheEntryType::Loaded(executable)
