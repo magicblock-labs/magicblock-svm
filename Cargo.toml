@@ -3,7 +3,7 @@ members = ["program-runtime", "solana-account", "svm", "transaction-context"]
 resolver = "2"
 
 [workspace.package]
-version = "3.1.11"
+version = "3.1.12"
 authors = ["Anza Maintainers <maintainers@anza.xyz>"]
 repository = "https://github.com/anza-xyz/agave"
 homepage = "https://anza.xyz/"
