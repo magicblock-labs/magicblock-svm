@@ -183,8 +183,9 @@ impl From<Account> for AccountSharedData {
             lamports: other.lamports,
             data: Arc::new(other.data),
             owner: other.owner,
-            remote_slot: u64::default(),
+            remote_slot: 0,
             flags,
+            markers: Default::default(),
         })
     }
 }
@@ -376,8 +377,9 @@ impl WritableAccount for AccountSharedData {
             lamports,
             data: Arc::new(data),
             owner,
-            remote_slot: u64::default(),
+            remote_slot: 0,
             flags,
+            markers: Default::default(),
         })
     }
 }
@@ -661,6 +663,7 @@ impl AccountSharedData {
                     owner: *acc.owner(),
                     remote_slot: *acc.remote_slot(),
                     flags: acc.flags_into_owned(),
+                    markers: acc.markers,
                 })
             }
         }
@@ -842,6 +845,22 @@ impl AccountSharedData {
                 acc.cow();
                 *acc.remote_slot() = remote_slot;
             },
+        }
+    }
+
+    /// Whether lamports of the given account have been modified
+    pub fn lamports_changed(&self) -> bool {
+        match self {
+            Self::Borrowed(acc) => acc.markers.is_set(LAMPORTS_CHANGED_MARKER_INDEX),
+            Self::Owned(acc) => acc.markers.is_set(LAMPORTS_CHANGED_MARKER_INDEX),
+        }
+    }
+
+    /// Whether owner of the given account has been modified
+    pub fn owner_changed(&self) -> bool {
+        match self {
+            Self::Borrowed(acc) => acc.markers.is_set(OWNER_CHANGED_MARKER_INDEX),
+            Self::Owned(acc) => acc.markers.is_set(OWNER_CHANGED_MARKER_INDEX),
         }
     }
 
