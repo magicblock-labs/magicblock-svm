@@ -188,7 +188,6 @@ impl MockBankCallback {
 
 pub fn load_program(name: String) -> Vec<u8> {
     let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    dir.push("../..");
     dir.push("tests");
     dir.push("example-programs");
     dir.push(name.as_str());

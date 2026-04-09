@@ -2,7 +2,7 @@
 name = "solana-program-runtime"
 description = "Solana program runtime"
 documentation = "https://docs.rs/solana-program-runtime"
-version = "3.1.12"
+version = { workspace = true }
 authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
@@ -22,7 +22,10 @@ dev-context-only-utils = []
 dummy-for-ci-check = ["metrics"]
 frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro"]
 metrics = []
-shuttle-test = ["solana-sbpf/shuttle-test", "solana-svm-type-overrides/shuttle-test"]
+shuttle-test = [
+  "solana-sbpf/shuttle-test",
+  "solana-svm-type-overrides/shuttle-test",
+]
 
 [dependencies]
 base64 = { workspace = true }
@@ -39,10 +42,10 @@ solana-epoch-rewards = { workspace = true }
 solana-epoch-schedule = { workspace = true }
 solana-fee-structure = { workspace = true }
 solana-frozen-abi = { workspace = true, optional = true, features = [
-    "frozen-abi",
+  "frozen-abi",
 ] }
 solana-frozen-abi-macro = { workspace = true, optional = true, features = [
-    "frozen-abi",
+  "frozen-abi",
 ] }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
@@ -66,7 +69,9 @@ solana-svm-type-overrides = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-sysvar = { workspace = true, features = ["bincode"] }
 solana-sysvar-id = { workspace = true }
-solana-transaction-context = { workspace = true, features = ["agave-unstable-api"] }
+solana-transaction-context = { workspace = true, features = [
+  "agave-unstable-api",
+] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
@@ -75,16 +80,16 @@ solana-account-info = { workspace = true }
 solana-instruction = { workspace = true, features = ["bincode"] }
 solana-instruction-error = { workspace = true, features = ["serde"] }
 solana-keypair = { workspace = true }
-solana-program-runtime = { path = ".", features = [
-    "agave-unstable-api",
-    "dev-context-only-utils",
+solana-program-runtime = { workspace = true, features = [
+  "agave-unstable-api",
+  "dev-context-only-utils",
 ] }
 solana-pubkey = { workspace = true, features = ["rand"] }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true, features = ["dev-context-only-utils"] }
 solana-transaction-context = { workspace = true, features = [
-    "agave-unstable-api",
-    "dev-context-only-utils",
+  "agave-unstable-api",
+  "dev-context-only-utils",
 ] }
 test-case = { workspace = true }
 

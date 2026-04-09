@@ -1426,9 +1426,7 @@ mod tests {
 
     fn new_loaded_entry(env: ProgramRuntimeEnvironment) -> ProgramCacheEntryType {
         let mut elf = Vec::new();
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("elfs/noop_aligned.so");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../elfs/noop_aligned.so");
         File::open(path).unwrap().read_to_end(&mut elf).unwrap();
         let executable = Executable::load(&elf, env).unwrap();
         ProgramCacheEntryType::Loaded(executable)

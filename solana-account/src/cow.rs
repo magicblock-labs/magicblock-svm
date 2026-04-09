@@ -98,9 +98,8 @@ pub(crate) const EPHEMERAL_FLAG_INDEX: u32 = 6;
 const _: () = assert!(EPHEMERAL_FLAG_INDEX < 8);
 
 // --- Marker bit indices (runtime state, not persisted) ---
-pub(crate) const IS_DIRTY_MARKER_INDEX: u32 = 0;
-pub(crate) const OWNER_CHANGED_MARKER_INDEX: u32 = 1;
-pub(crate) const LAMPORTS_CHANGED_MARKER_INDEX: u32 = 2;
+pub(crate) const OWNER_CHANGED_MARKER_INDEX: u32 = 0;
+pub(crate) const LAMPORTS_CHANGED_MARKER_INDEX: u32 = 1;
 
 /// A memory-optimized, "borrowed" view of a Solana account residing in a memory-mapped region.
 ///
@@ -120,9 +119,8 @@ pub struct AccountBorrowed {
     /// Pointer to the start of the active buffer (lamports field).
     buffer: NonNull<u8>,
     /// Runtime markers (not persisted to disk):
-    /// - bit 0: `is_dirty` - account has been modified
-    /// - bit 1: `owner_changed` - owner field was modified
-    /// - bit 2: `lamports_changed` - lamports field was modified
+    /// - bit 0: `owner_changed` - owner field was modified
+    /// - bit 1: `lamports_changed` - lamports field was modified
     pub(crate) markers: BitFlagsOwned,
 }
 
@@ -246,7 +244,6 @@ impl AccountBorrowed {
         if self.shadow_offset == 0 {
             return;
         }
-        self.markers.set(true, IS_DIRTY_MARKER_INDEX);
 
         let src = self.buffer.as_ptr();
         let dst = src.offset(self.shadow_offset);
@@ -327,16 +324,6 @@ impl AccountBorrowed {
         self.flag_is_set(PRIVILEGED_FLAG_INDEX)
     }
 
-    /// Returns whether the account's owner has been modified.
-    pub fn owner_changed(&self) -> bool {
-        self.markers.is_set(OWNER_CHANGED_MARKER_INDEX)
-    }
-
-    /// Returns whether the account's balance has been modified.
-    pub fn lamports_changed(&self) -> bool {
-        self.markers.is_set(LAMPORTS_CHANGED_MARKER_INDEX)
-    }
-
     /// Returns the entire active buffer as a static slice.
     ///
     /// The buffer contains all serialized fields (lamports, owner, remote_slot, flags,
@@ -372,6 +359,10 @@ pub struct AccountOwned {
     /// - bit 5: confined
     /// - bit 6: ephemeral
     pub(crate) flags: BitFlagsOwned,
+    /// Runtime markers (not persisted to disk):
+    /// - bit 0: `owner_changed` - owner field was modified
+    /// - bit 1: `lamports_changed` - lamports field was modified
+    pub(crate) markers: BitFlagsOwned,
 }
 
 impl Default for AccountSharedData {
@@ -559,7 +550,7 @@ impl AccountSharedData {
     /// Returns `true` if the account has been modified.
     pub fn is_dirty(&self) -> bool {
         match self {
-            Self::Borrowed(acc) => acc.markers.is_set(IS_DIRTY_MARKER_INDEX),
+            Self::Borrowed(acc) => acc.shadow_offset == 0,
             // Owned accounts are heap-allocated copies, so they are always considered "dirty".
             Self::Owned(_) => true,
         }

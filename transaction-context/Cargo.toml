@@ -2,7 +2,7 @@
 name = "solana-transaction-context"
 description = "Solana data shared between program runtime and built-in programs as well as SBF programs."
 documentation = "https://docs.rs/solana-transaction-context"
-version = "3.1.12"
+version = { workspace = true }
 authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
@@ -17,7 +17,11 @@ rustdoc-args = ["--cfg=docsrs"]
 [features]
 agave-unstable-api = []
 bincode = ["dep:bincode", "serde", "solana-account/bincode"]
-dev-context-only-utils = ["bincode", "solana-account/dev-context-only-utils", "dep:qualifier_attr"]
+dev-context-only-utils = [
+  "bincode",
+  "solana-account/dev-context-only-utils",
+  "dep:qualifier_attr",
+]
 serde = ["serde/derive"]
 
 [dependencies]
@@ -39,9 +43,9 @@ solana-signature = { workspace = true, optional = true }
 solana-account-info = { workspace = true }
 solana-program-entrypoint = { workspace = true }
 solana-system-interface = { workspace = true }
-solana-transaction-context = { path = ".", features = [
-    "agave-unstable-api",
-    "dev-context-only-utils",
+solana-transaction-context = { workspace = true, features = [
+  "agave-unstable-api",
+  "dev-context-only-utils",
 ] }
 static_assertions = { workspace = true }
 

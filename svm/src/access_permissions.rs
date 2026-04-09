@@ -27,10 +27,18 @@ impl ExecutedTransaction {
             return;
         }
         let accounts = &self.loaded_transaction.accounts;
-        let payer = accounts.first().map(|(_, acc)| acc);
-        if payer.map(|p| p.privileged()).unwrap_or_default() {
-            // Payer has privileged access, so we can skip the validation.
-            return;
+        if let Some((pk, payer)) = accounts.first() {
+            if payer.privileged() {
+                return;
+            }
+            if !payer.delegated() && payer.lamports_changed() {
+                self.execution_details.status = Err(TransactionError::InvalidAccountForFee);
+                let logs = self.execution_details.log_messages.get_or_insert_default();
+                logs.push(format!(
+                    "Program log: Feepayer {pk} was modified without being delegated"
+                ));
+                return;
+            }
         }
 
         let mut offender = None;
@@ -51,9 +59,6 @@ impl ExecutedTransaction {
             logs.push(format!(
                 "Program log: Account {i}:{offender} was illegally used as writeable"
             ));
-            logs.push(
-                "Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount".into()
-            );
         }
     }
 }

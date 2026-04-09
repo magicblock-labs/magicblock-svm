@@ -653,7 +653,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         loaded_size: 0,
                     }
                 }
-        });
+            });
         if total_fee != 0 && loaded_fee_payer.account.lamports() == 0 {
             return Err(TransactionError::AccountNotFound);
         }

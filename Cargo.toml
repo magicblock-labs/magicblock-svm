@@ -3,7 +3,7 @@ members = ["program-runtime", "solana-account", "svm", "transaction-context"]
 resolver = "2"
 
 [workspace.package]
-version = "3.1.12"
+version = "3.1.11"
 authors = ["Anza Maintainers <maintainers@anza.xyz>"]
 repository = "https://github.com/anza-xyz/agave"
 homepage = "https://anza.xyz/"
@@ -72,7 +72,7 @@ solana-precompile-error = "3.0"
 solana-program-binaries = { version = "3.1", features = ["agave-unstable-api"] }
 solana-program-entrypoint = "3.1"
 solana-program-pack = "3.1"
-solana-program-runtime = { path = "program-runtime", version = "3.1.11" }
+solana-program-runtime = { path = "program-runtime" }
 solana-pubkey = "3.0"
 solana-rent = "3.0"
 solana-sbpf = "0.13.1"
@@ -97,7 +97,7 @@ solana-system-transaction = "3.0"
 solana-sysvar = "3.0"
 solana-sysvar-id = "3.0"
 solana-transaction = "3.0"
-solana-transaction-context = { path = "transaction-context", version = "3.1.11" }
+solana-transaction-context = { path = "transaction-context" }
 solana-transaction-error = "3.0"
 
 [workspace.lints.rust.unexpected_cfgs]

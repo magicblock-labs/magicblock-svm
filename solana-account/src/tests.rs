@@ -4,13 +4,9 @@ use solana_clock::Epoch;
 use solana_pubkey::Pubkey;
 
 use crate::{
-    accounts_equal,
-    cow::{
-        IS_DIRTY_MARKER_INDEX, LAMPORTS_CHANGED_MARKER_INDEX, OWNER_CHANGED_MARKER_INDEX,
-        RELATIVE_DATA_LEN_POINTER_OFFSET_TEST,
-    },
-    test_utils::create_borrowed_account_shared_data,
-    AccountSharedData, ReadableAccount, WritableAccount,
+    accounts_equal, cow::RELATIVE_DATA_LEN_POINTER_OFFSET_TEST,
+    test_utils::create_borrowed_account_shared_data, AccountSharedData, ReadableAccount,
+    WritableAccount,
 };
 
 const DATA_LEN: u32 = 16384;
@@ -225,44 +221,20 @@ fn test_flag_persistence_all() {
 
 #[test]
 fn test_markers() {
-    let (_buffer, _, mut borrowed) = setup!();
-
-    // Test is_dirty marker
-    let AccountSharedData::Borrowed(b) = &mut borrowed else {
-        panic!("Expected borrowed account");
-    };
-    assert!(!b.markers.is_set(IS_DIRTY_MARKER_INDEX));
-    unsafe { b.cow() };
-    assert!(b.markers.is_set(IS_DIRTY_MARKER_INDEX));
-
     // Test owner_changed marker
     let (_buffer, _, mut borrowed) = setup!();
-    let AccountSharedData::Borrowed(b) = &borrowed else {
-        panic!("Expected borrowed account");
-    };
-    assert!(!b.owner_changed());
+    assert!(!borrowed.owner_changed());
     let new_owner = Pubkey::new_from_array([99; 32]);
     borrowed.set_owner(new_owner);
-    let AccountSharedData::Borrowed(b) = &borrowed else {
-        panic!("Expected borrowed account");
-    };
-    assert!(b.owner_changed());
-    assert!(b.markers.is_set(OWNER_CHANGED_MARKER_INDEX));
+    assert!(borrowed.owner_changed());
     // Verify owner actually changed in memory
-    assert_eq!(unsafe { *b.owner() }, new_owner);
+    assert_eq!(*borrowed.owner(), new_owner);
 
     // Test lamports_changed marker
     let (_buffer, _, mut borrowed) = setup!();
-    let AccountSharedData::Borrowed(b) = &borrowed else {
-        panic!("Expected borrowed account");
-    };
-    assert!(!b.lamports_changed());
+    assert!(!borrowed.lamports_changed());
     borrowed.set_lamports(9999);
-    let AccountSharedData::Borrowed(b) = &borrowed else {
-        panic!("Expected borrowed account");
-    };
-    assert!(b.lamports_changed());
-    assert!(b.markers.is_set(LAMPORTS_CHANGED_MARKER_INDEX));
+    assert!(borrowed.lamports_changed());
 }
 
 #[test]
