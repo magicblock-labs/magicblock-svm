@@ -2,6 +2,7 @@ use crate::account_loader::{AccountsBalances, LoadedTransactionAccount};
 use crate::escrow::ephemeral_balance_pda_from_payer;
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::{field_qualifiers, qualifiers};
+use solana_compute_budget::compute_budget_limits::ComputeBudgetLimits;
 use {
     crate::{
         account_loader::{
@@ -635,13 +636,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         enforce_access_permissions: bool,
         callbacks: &CB,
     ) -> TransactionResult<ValidatedTransactionDetails> {
-        let compute_budget_limits = process_compute_budget_instructions(
-            message.program_instructions_iter(),
-            &account_loader.feature_set,
-        )
-        .inspect_err(|_err| {
-            error_counters.invalid_compute_budget += 1;
-        })?;
+        let compute_budget_limits = ComputeBudgetLimits::default();
 
         let mut fee_payer_address = *message.fee_payer();
 
