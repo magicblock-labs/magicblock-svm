@@ -81,6 +81,10 @@ impl TransactionAccountView<'_> {
         self.private_fields.account.undelegating()
     }
 
+    pub fn compressed(&self) -> bool {
+        self.private_fields.account.compressed()
+    }
+
     pub fn confined(&self) -> bool {
         self.private_fields.account.confined()
     }
@@ -155,6 +159,10 @@ impl TransactionAccountViewMut<'_> {
         self.private_fields.account.delegated()
     }
 
+    pub fn compressed(&self) -> bool {
+        self.private_fields.account.compressed()
+    }
+
     pub fn undelegating(&self) -> bool {
         self.private_fields.account.undelegating()
     }
@@ -177,6 +185,10 @@ impl TransactionAccountViewMut<'_> {
 
     pub fn set_undelegating(&mut self, undelegating: bool) {
         self.private_fields.account.set_undelegating(undelegating);
+    }
+
+    pub fn set_compressed(&mut self, compressed: bool) {
+        self.private_fields.account.set_compressed(compressed);
     }
 
     pub fn set_confined(&mut self, confined: bool) {
