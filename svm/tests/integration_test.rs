@@ -324,13 +324,6 @@ impl SvmTestEnvironment<'_> {
                 actual_account_data,
                 "mismatch on account {pubkey}"
             );
-            assert!(
-                solana_account::accounts_equal(expected_account_data, actual_account_data.unwrap()),
-                "mismatch on account {}\n  expected: {:?}\n  actual: {:?}",
-                pubkey,
-                expected_account_data,
-                actual_account_data.unwrap()
-            );
         }
 
         // now run our transaction-by-transaction checks

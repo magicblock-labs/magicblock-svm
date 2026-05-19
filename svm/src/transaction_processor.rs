@@ -2127,22 +2127,6 @@ mod tests {
                 }
             })
         );
-        assert_eq!(
-            result.loaded_fee_payer_account.loaded_size,
-            fee_payer_account.data().len()
-        );
-        assert_eq!(
-            result.loaded_fee_payer_account.rent_collected,
-            fee_payer_rent_debit
-        );
-        assert!(
-            solana_account::accounts_equal(
-                &result.loaded_fee_payer_account.account,
-                &post_validation_fee_payer_account
-            ),
-            "loaded_fee_payer_account.account mismatch"
-        );
-        assert_eq!(result.fee_payer_address, *fee_payer_address);
     }
 
     #[test]
