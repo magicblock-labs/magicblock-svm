@@ -47,8 +47,9 @@ impl ExecutedTransaction {
         }
 
         let mut offender = None;
-        let is_mutable =
-            |acc: &AccountSharedData| acc.delegated() || acc.ephemeral() || acc.confined();
+        let is_mutable = |acc: &AccountSharedData| {
+            acc.delegated() || acc.ephemeral() || acc.confined() || acc.undelegating()
+        };
         // For non-privileged payers, validate the rest of the accounts.
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (pk, acc)) in accounts.iter().enumerate().skip(1) {
