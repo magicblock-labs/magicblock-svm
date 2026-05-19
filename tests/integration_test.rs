@@ -310,11 +310,7 @@ impl SvmTestEnvironment<'_> {
         // check that all the account states we care about are present and correct
         for (pubkey, expected_account_data) in self.test_entry.final_accounts.iter() {
             let actual_account_data = final_accounts_actual.get(pubkey);
-            assert!(
-                actual_account_data.is_some(),
-                "missing account {}",
-                pubkey
-            );
+            assert!(actual_account_data.is_some(), "missing account {}", pubkey);
             assert!(
                 solana_account::accounts_equal(expected_account_data, actual_account_data.unwrap()),
                 "mismatch on account {}\n  expected: {:?}\n  actual: {:?}",
@@ -2422,7 +2418,7 @@ fn svm_inspect_account() {
         Hash::default(),
     );
 
-    initial_test_entry.push_transaction(transaction);
+    initial_test_entry.push_transaction_with_status(transaction, ExecutionStatus::ExecutedFailed);
 
     let mut recipient_account = AccountSharedData::default();
     recipient_account.set_lamports(transfer_amount);
@@ -2493,7 +2489,7 @@ fn svm_inspect_account() {
         Hash::default(),
     );
 
-    final_test_entry.push_transaction(transaction);
+    final_test_entry.push_transaction_with_status(transaction, ExecutionStatus::ExecutedFailed);
 
     final_test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE * 2);
     final_test_entry.decrease_expected_lamports(&sender, transfer_amount);
@@ -3110,11 +3106,11 @@ fn enforce_access_permissions_false_with_multiple_non_delegated_accounts() {
 }
 
 // -----------------
-// Privileged Accounts Override Access Checks
+// Privileged Accounts
 // -----------------
 #[test]
-fn test_privileged_fee_payer_with_non_delegated_writable_accounts() {
-    // Test that privileged fee payer can write to non-delegated writable accounts
+fn privileged_fee_payer_with_non_magic_program_cannot_write_non_delegated_accounts() {
+    // Privileged fee payers only bypass access checks for allowlisted Magic instructions.
     let fee_payer_keypair = Keypair::new();
     let fee_payer = fee_payer_keypair.pubkey();
     let (_guard, mut fee_payer_account) = create_privileged_account(LAMPORTS_PER_SOL);
@@ -3143,7 +3139,7 @@ fn test_privileged_fee_payer_with_non_delegated_writable_accounts() {
         LAST_BLOCKHASH,
     );
 
-    test_entry.push_transaction(transaction);
+    test_entry.push_transaction_with_status(transaction, ExecutionStatus::ExecutedFailed);
     test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
 
     let env = SvmTestEnvironment::create(test_entry);
