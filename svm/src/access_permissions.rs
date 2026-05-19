@@ -1,5 +1,6 @@
 use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
+use solana_sdk_ids::loader_v4;
 use solana_svm_transaction::svm_message::SVMMessage;
 use solana_transaction_error::TransactionError;
 
@@ -75,6 +76,9 @@ fn has_privileged_access(message: &impl SVMMessage) -> bool {
         else {
             return false;
         };
+        if *program == loader_v4::ID {
+            continue;
+        }
         if *program != MAGIC_PROGRAM_ID {
             return false;
         }
