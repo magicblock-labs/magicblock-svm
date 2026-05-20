@@ -8,7 +8,7 @@ use crate::transaction_execution_result::ExecutedTransaction;
 
 const MAGIC_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("Magic11111111111111111111111111111111111111");
-const PRIVILEGED_MAGIC_DISCRIMINANTS: [u32; 9] = [0, 8, 9, 16, 17, 18, 19, 20, 22];
+const PRIVILEGED_MAGIC_DISCRIMINANTS: [u32; 11] = [0, 8, 9, 16, 17, 18, 19, 20, 21, 22, 24];
 
 // NOTE:
 // this impl is kept separately to simplify synchronization with upstream
