@@ -1,0 +1,48 @@
+[package]
+name = "solana-account"
+description = "Solana Account type"
+documentation = "https://docs.rs/solana-account"
+version = "3.4.0"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+
+[dependencies]
+bincode = { workspace = true, optional = true }
+qualifier_attr = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+serde_bytes = { workspace = true, optional = true }
+solana-account-info = { workspace = true }
+solana-clock = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-sysvar = { workspace = true }
+solana-sdk-ids = { workspace = true }
+solana-frozen-abi = { workspace = true, optional = true, features = [
+  "frozen-abi",
+] }
+solana-frozen-abi-macro = { workspace = true, optional = true, features = [
+  "frozen-abi",
+] }
+
+
+[features]
+default = ["bincode", "dev-context-only-utils", "serde"]
+bincode = [
+  "dep:bincode",
+  "solana-instruction/serde",
+  "solana-sysvar/bincode",
+  "serde",
+]
+dev-context-only-utils = ["bincode", "dep:qualifier_attr"]
+serde = ["dep:serde", "dep:serde_bytes", "solana-pubkey/serde"]
+# Enable ABI freeze support and forward to dependent crates
+frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
