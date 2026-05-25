@@ -63,8 +63,12 @@ impl ExecutedTransaction {
             self.execution_details.status = Err(TransactionError::InvalidWritableAccount);
             let logs = self.execution_details.log_messages.get_or_insert_default();
             logs.push(format!(
-                "Program log: Account {i}:{offender} was illegally used as writeable"
+                "Program log: Account {i}: {offender} was illegally used as writable"
             ));
+            logs.push(
+                "Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount"
+                    .to_string(),
+            );
         }
     }
 }
@@ -191,6 +195,16 @@ mod tests {
         assert_eq!(
             tx.execution_details.status,
             Err(TransactionError::InvalidWritableAccount)
+        );
+        assert_eq!(
+            tx.execution_details.log_messages.as_ref().unwrap(),
+            &vec![
+                format!(
+                    "Program log: Account 1: {writable} was illegally used as writable"
+                ),
+                "Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount"
+                    .to_string(),
+            ]
         );
     }
 
