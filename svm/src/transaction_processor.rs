@@ -509,7 +509,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         };
                     }
 
-                    let before = ExecutedTransaction::log_accounts_info(&loaded_transaction, tx);
                     let mut executed_tx = self.execute_loaded_transaction(
                         callbacks,
                         tx,
@@ -522,17 +521,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     );
 
                     executed_tx.validate_accounts_access(tx);
-                    let after =
-                        ExecutedTransaction::log_accounts_info(&executed_tx.loaded_transaction, tx);
-
-                    let logs = executed_tx
-                        .execution_details
-                        .log_messages
-                        .get_or_insert_default();
-                    logs.push("before".to_owned());
-                    logs.extend(before);
-                    logs.push("after".to_owned());
-                    logs.extend(after);
 
                     // Update loaded accounts cache with account states which might have changed.
                     // Also update local program cache with modifications made by the transaction,

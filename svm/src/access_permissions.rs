@@ -4,7 +4,7 @@ use solana_sdk_ids::loader_v4;
 use solana_svm_transaction::svm_message::SVMMessage;
 use solana_transaction_error::TransactionError;
 
-use crate::{account_loader::LoadedTransaction, transaction_execution_result::ExecutedTransaction};
+use crate::transaction_execution_result::ExecutedTransaction;
 
 const MAGIC_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("Magic11111111111111111111111111111111111111");
@@ -67,22 +67,6 @@ impl ExecutedTransaction {
                 ));
             }
         }
-    }
-
-    pub(crate) fn log_accounts_info(
-        loaded_transaction: &LoadedTransaction,
-        message: &impl SVMMessage,
-    ) -> Vec<String> {
-        let mut logs = vec![];
-        for (i, (pk, acc)) in loaded_transaction.accounts.iter().enumerate().skip(1) {
-            logs.push(format!(
-                "{i}: {pk} => {}, {}, {}",
-                acc.delegated(),
-                acc.undelegating(),
-                message.is_writable(i)
-            ));
-        }
-        logs
     }
 }
 
