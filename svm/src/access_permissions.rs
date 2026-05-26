@@ -4,7 +4,7 @@ use solana_sdk_ids::loader_v4;
 use solana_svm_transaction::svm_message::SVMMessage;
 use solana_transaction_error::TransactionError;
 
-use crate::transaction_execution_result::ExecutedTransaction;
+use crate::{account_loader::LoadedTransaction, transaction_execution_result::ExecutedTransaction};
 
 const MAGIC_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("Magic11111111111111111111111111111111111111");
@@ -46,30 +46,43 @@ impl ExecutedTransaction {
             }
         }
 
-        let mut offender = None;
         let is_mutable = |acc: &AccountSharedData| {
             acc.delegated() || acc.ephemeral() || acc.confined() || acc.undelegating()
         };
+
+        let logs = self.execution_details.log_messages.get_or_insert_default();
+        let mut first = true;
         // For non-privileged payers, validate the rest of the accounts.
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (pk, acc)) in accounts.iter().enumerate().skip(1) {
             // Enforce that any account intended to be writable must be a delegated account.
             if message.is_writable(i) && !is_mutable(acc) {
-                offender.replace((i, pk));
-                break;
+                if first {
+                    self.execution_details.status = Err(TransactionError::InvalidWritableAccount);
+                    logs.push("Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount" .to_string());
+                }
+                first = false;
+                logs.push(format!(
+                    "MagicBlock SVM check: Account {i} ({pk}) was illegally used as writable"
+                ));
             }
         }
-        if let Some((i, offender)) = offender {
-            self.execution_details.status = Err(TransactionError::InvalidWritableAccount);
-            let logs = self.execution_details.log_messages.get_or_insert_default();
+    }
+
+    pub(crate) fn log_accounts_info(
+        loaded_transaction: &LoadedTransaction,
+        message: &impl SVMMessage,
+    ) -> Vec<String> {
+        let mut logs = vec![];
+        for (i, (pk, acc)) in loaded_transaction.accounts.iter().enumerate().skip(1) {
             logs.push(format!(
-                "Program log: Account {i}: {offender} was illegally used as writable"
+                "{i}: {pk} => {}, {}, {}",
+                acc.delegated(),
+                acc.undelegating(),
+                message.is_writable(i)
             ));
-            logs.push(
-                "Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount"
-                    .to_string(),
-            );
         }
+        logs
     }
 }
 
