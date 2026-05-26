@@ -46,29 +46,26 @@ impl ExecutedTransaction {
             }
         }
 
-        let mut offender = None;
         let is_mutable = |acc: &AccountSharedData| {
             acc.delegated() || acc.ephemeral() || acc.confined() || acc.undelegating()
         };
+
+        let logs = self.execution_details.log_messages.get_or_insert_default();
+        let mut first = true;
         // For non-privileged payers, validate the rest of the accounts.
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (pk, acc)) in accounts.iter().enumerate().skip(1) {
             // Enforce that any account intended to be writable must be a delegated account.
             if message.is_writable(i) && !is_mutable(acc) {
-                offender.replace((i, pk));
-                break;
+                if first {
+                    self.execution_details.status = Err(TransactionError::InvalidWritableAccount);
+                    logs.push("Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount" .to_string());
+                }
+                first = false;
+                logs.push(format!(
+                    "MagicBlock SVM check: Account {i} ({pk}) was illegally used as writable"
+                ));
             }
-        }
-        if let Some((i, offender)) = offender {
-            self.execution_details.status = Err(TransactionError::InvalidWritableAccount);
-            let logs = self.execution_details.log_messages.get_or_insert_default();
-            logs.push(format!(
-                "Program log: Account {i}: {offender} was illegally used as writable"
-            ));
-            logs.push(
-                "Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount"
-                    .to_string(),
-            );
         }
     }
 }

@@ -521,6 +521,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     );
 
                     executed_tx.validate_accounts_access(tx);
+
                     // Update loaded accounts cache with account states which might have changed.
                     // Also update local program cache with modifications made by the transaction,
                     // if it executed successfully.
