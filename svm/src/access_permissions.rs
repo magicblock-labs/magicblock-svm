@@ -13,6 +13,7 @@ const POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID: Pubkey =
 const PRIVILEGED_MAGIC_DISCRIMINANTS: [u32; 11] = [0, 8, 9, 16, 17, 18, 19, 20, 21, 22, 24];
 const CLONE_ACCOUNT_DISCRIMINANT: u32 = 16;
 const CLONE_ACCOUNT_CONTINUE_DISCRIMINANT: u32 = 18;
+const CLONED_ACCOUNT_INSTRUCTION_ACCOUNT_INDEX: usize = 1;
 
 // NOTE:
 // this impl is kept separately to simplify synchronization with upstream
@@ -99,7 +100,7 @@ enum PrivilegedAccess {
     None,
     Full,
     CloneWithPostDelegationActionExecutor {
-        clone_accounts: Vec<usize>,
+        cloned_account: usize,
     },
 }
 
@@ -113,8 +114,8 @@ impl PrivilegedAccess {
 
     fn allows_account_write(&self, index: usize) -> bool {
         match self {
-            PrivilegedAccess::CloneWithPostDelegationActionExecutor { clone_accounts } => {
-                clone_accounts.contains(&index)
+            PrivilegedAccess::CloneWithPostDelegationActionExecutor { cloned_account } => {
+                *cloned_account == index
             }
             PrivilegedAccess::Full => true,
             PrivilegedAccess::None => false,
@@ -163,12 +164,24 @@ fn clone_with_post_delegation_action_executor_access(
         return PrivilegedAccess::None;
     }
 
+    let Some(cloned_account) = instructions[0]
+        .accounts
+        .get(CLONED_ACCOUNT_INSTRUCTION_ACCOUNT_INDEX)
+        .copied()
+    else {
+        return PrivilegedAccess::None;
+    };
+    if instructions[1]
+        .accounts
+        .get(CLONED_ACCOUNT_INSTRUCTION_ACCOUNT_INDEX)
+        .copied()
+        != Some(cloned_account)
+    {
+        return PrivilegedAccess::None;
+    }
+
     PrivilegedAccess::CloneWithPostDelegationActionExecutor {
-        clone_accounts: instructions[0]
-            .accounts
-            .iter()
-            .map(|account_index| *account_index as usize)
-            .collect(),
+        cloned_account: cloned_account as usize,
     }
 }
 
@@ -409,7 +422,8 @@ mod tests {
     }
 
     #[test]
-    fn privileged_payer_rejects_post_delegation_action_executor_with_extra_writable_account() {
+    fn privileged_payer_rejects_post_delegation_action_executor_with_extra_clone_writable_account()
+    {
         let payer = Pubkey::new_unique();
         let writable = Pubkey::new_unique();
         let extra_writable = Pubkey::new_unique();
@@ -421,7 +435,7 @@ mod tests {
                 (
                     MAGIC_PROGRAM_ID,
                     CLONE_ACCOUNT_DISCRIMINANT.to_le_bytes().to_vec(),
-                    vec![0, 1],
+                    vec![0, 1, 2],
                 ),
                 (
                     POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID,
