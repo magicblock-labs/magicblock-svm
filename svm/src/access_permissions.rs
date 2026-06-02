@@ -1,14 +1,18 @@
 use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::loader_v4;
-use solana_svm_transaction::svm_message::SVMMessage;
+use solana_svm_transaction::{instruction::SVMInstruction, svm_message::SVMMessage};
 use solana_transaction_error::TransactionError;
 
 use crate::transaction_execution_result::ExecutedTransaction;
 
 const MAGIC_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("Magic11111111111111111111111111111111111111");
+const POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID: Pubkey =
+    Pubkey::from_str_const("PostAct111111111111111111111111111111111111");
 const PRIVILEGED_MAGIC_DISCRIMINANTS: [u32; 11] = [0, 8, 9, 16, 17, 18, 19, 20, 21, 22, 24];
+const CLONE_ACCOUNT_DISCRIMINANT: u32 = 16;
+const CLONE_ACCOUNT_CONTINUE_DISCRIMINANT: u32 = 18;
 
 // NOTE:
 // this impl is kept separately to simplify synchronization with upstream
@@ -74,7 +78,18 @@ impl ExecutedTransaction {
 }
 
 fn has_privileged_access(message: &impl SVMMessage) -> bool {
-    for instruction in message.instructions_iter() {
+    let instructions = message.instructions_iter().collect::<Vec<_>>();
+    if instructions.len() == 2
+        && instruction_program_id(message, &instructions[0]) == Some(MAGIC_PROGRAM_ID)
+        && instruction_program_id(message, &instructions[1])
+            == Some(POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID)
+    {
+        return instruction_discriminant(&instructions[0]).is_some_and(|d| {
+            d == CLONE_ACCOUNT_DISCRIMINANT || d == CLONE_ACCOUNT_CONTINUE_DISCRIMINANT
+        });
+    }
+
+    for instruction in instructions {
         let Some(program) = message
             .account_keys()
             .get(instruction.program_id_index as usize)
@@ -88,17 +103,30 @@ fn has_privileged_access(message: &impl SVMMessage) -> bool {
             return false;
         }
 
-        let discriminant = instruction
-            .data
-            .get(0..4)
-            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
-            .map(u32::from_le_bytes)
-            .unwrap_or(u32::MAX);
+        let discriminant = instruction_discriminant(&instruction).unwrap_or(u32::MAX);
         if !PRIVILEGED_MAGIC_DISCRIMINANTS.contains(&discriminant) {
             return false;
         }
     }
     true
+}
+
+fn instruction_program_id(
+    message: &impl SVMMessage,
+    instruction: &SVMInstruction<'_>,
+) -> Option<Pubkey> {
+    message
+        .account_keys()
+        .get(instruction.program_id_index as usize)
+        .copied()
+}
+
+fn instruction_discriminant(instruction: &SVMInstruction<'_>) -> Option<u32> {
+    instruction
+        .data
+        .get(0..4)
+        .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+        .map(u32::from_le_bytes)
 }
 
 #[cfg(test)]
@@ -171,6 +199,33 @@ mod tests {
         ))
     }
 
+    fn message_with_programs(instructions: Vec<(Pubkey, Vec<u8>)>) -> SanitizedMessage {
+        let mut account_keys = vec![Pubkey::new_unique(), Pubkey::new_unique()];
+        account_keys.extend(instructions.iter().map(|(program, _)| *program));
+
+        SanitizedMessage::Legacy(LegacyMessage::new(
+            Message {
+                account_keys,
+                header: MessageHeader {
+                    num_required_signatures: 1,
+                    num_readonly_signed_accounts: 0,
+                    num_readonly_unsigned_accounts: instructions.len() as u8,
+                },
+                instructions: instructions
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, (_, data))| CompiledInstruction {
+                        program_id_index: (idx + 2) as u8,
+                        accounts: vec![1],
+                        data,
+                    })
+                    .collect(),
+                recent_blockhash: Hash::default(),
+            },
+            &HashSet::new(),
+        ))
+    }
+
     #[test]
     fn privileged_payer_allows_magic_control_instruction() {
         let payer = Pubkey::new_unique();
@@ -181,6 +236,85 @@ mod tests {
         tx.validate_accounts_access(&message);
 
         assert_eq!(tx.execution_details.status, Ok(()));
+    }
+
+    #[test]
+    fn privileged_payer_allows_clone_with_post_delegation_action_executor() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message_with_programs(vec![
+            (
+                MAGIC_PROGRAM_ID,
+                CLONE_ACCOUNT_DISCRIMINANT.to_le_bytes().to_vec(),
+            ),
+            (POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID, vec![]),
+        ]);
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(tx.execution_details.status, Ok(()));
+    }
+
+    #[test]
+    fn privileged_payer_allows_clone_continue_with_post_delegation_action_executor() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message_with_programs(vec![
+            (
+                MAGIC_PROGRAM_ID,
+                CLONE_ACCOUNT_CONTINUE_DISCRIMINANT.to_le_bytes().to_vec(),
+            ),
+            (POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID, vec![]),
+        ]);
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(tx.execution_details.status, Ok(()));
+    }
+
+    #[test]
+    fn privileged_payer_rejects_post_delegation_action_executor_without_clone() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message_with_programs(vec![
+            (MAGIC_PROGRAM_ID, 1u32.to_le_bytes().to_vec()),
+            (POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID, vec![]),
+        ]);
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(
+            tx.execution_details.status,
+            Err(TransactionError::InvalidWritableAccount)
+        );
+    }
+
+    #[test]
+    fn privileged_payer_rejects_post_delegation_action_executor_with_extra_ix() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message_with_programs(vec![
+            (
+                MAGIC_PROGRAM_ID,
+                CLONE_ACCOUNT_DISCRIMINANT.to_le_bytes().to_vec(),
+            ),
+            (POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID, vec![]),
+            (
+                MAGIC_PROGRAM_ID,
+                CLONE_ACCOUNT_DISCRIMINANT.to_le_bytes().to_vec(),
+            ),
+        ]);
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(
+            tx.execution_details.status,
+            Err(TransactionError::InvalidWritableAccount)
+        );
     }
 
     #[test]
