@@ -36,11 +36,24 @@ impl ExecutedTransaction {
             return;
         }
         let accounts = &self.loaded_transaction.accounts;
+        let privileged_access = accounts
+            .first()
+            .map(|(_, payer)| {
+                if payer.privileged() {
+                    privileged_access(message)
+                } else {
+                    PrivilegedAccess::None
+                }
+            })
+            .unwrap_or_default();
         if let Some((pk, payer)) = accounts.first() {
-            if payer.privileged() && has_privileged_access(message) {
+            if privileged_access == PrivilegedAccess::Full {
                 return;
             }
-            if !payer.delegated() && payer.lamports_changed() {
+            if !privileged_access.allows_fee_payer_write()
+                && !payer.delegated()
+                && payer.lamports_changed()
+            {
                 self.execution_details.status = Err(TransactionError::InvalidAccountForFee);
                 let logs = self.execution_details.log_messages.get_or_insert_default();
                 logs.push(format!(
@@ -58,7 +71,10 @@ impl ExecutedTransaction {
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (pk, acc)) in accounts.iter().enumerate().skip(1) {
             // Enforce that any account intended to be writable must be a delegated account.
-            if message.is_writable(i) && !is_mutable(acc) {
+            if message.is_writable(i)
+                && !is_mutable(acc)
+                && !privileged_access.allows_account_write(i)
+            {
                 offender.replace((i, pk));
                 break;
             }
@@ -77,16 +93,43 @@ impl ExecutedTransaction {
     }
 }
 
-fn has_privileged_access(message: &impl SVMMessage) -> bool {
+#[derive(Default, PartialEq)]
+enum PrivilegedAccess {
+    #[default]
+    None,
+    Full,
+    CloneWithPostDelegationActionExecutor {
+        clone_accounts: Vec<usize>,
+    },
+}
+
+impl PrivilegedAccess {
+    fn allows_fee_payer_write(&self) -> bool {
+        matches!(
+            self,
+            PrivilegedAccess::Full | PrivilegedAccess::CloneWithPostDelegationActionExecutor { .. }
+        )
+    }
+
+    fn allows_account_write(&self, index: usize) -> bool {
+        match self {
+            PrivilegedAccess::CloneWithPostDelegationActionExecutor { clone_accounts } => {
+                clone_accounts.contains(&index)
+            }
+            PrivilegedAccess::Full => true,
+            PrivilegedAccess::None => false,
+        }
+    }
+}
+
+fn privileged_access(message: &impl SVMMessage) -> PrivilegedAccess {
     let instructions = message.instructions_iter().collect::<Vec<_>>();
     if instructions.len() == 2
         && instruction_program_id(message, &instructions[0]) == Some(MAGIC_PROGRAM_ID)
         && instruction_program_id(message, &instructions[1])
             == Some(POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID)
     {
-        return instruction_discriminant(&instructions[0]).is_some_and(|d| {
-            d == CLONE_ACCOUNT_DISCRIMINANT || d == CLONE_ACCOUNT_CONTINUE_DISCRIMINANT
-        });
+        return clone_with_post_delegation_action_executor_access(&instructions);
     }
 
     for instruction in instructions {
@@ -94,21 +137,39 @@ fn has_privileged_access(message: &impl SVMMessage) -> bool {
             .account_keys()
             .get(instruction.program_id_index as usize)
         else {
-            return false;
+            return PrivilegedAccess::None;
         };
         if *program == loader_v4::ID {
             continue;
         }
         if *program != MAGIC_PROGRAM_ID {
-            return false;
+            return PrivilegedAccess::None;
         }
 
         let discriminant = instruction_discriminant(&instruction).unwrap_or(u32::MAX);
         if !PRIVILEGED_MAGIC_DISCRIMINANTS.contains(&discriminant) {
-            return false;
+            return PrivilegedAccess::None;
         }
     }
-    true
+    PrivilegedAccess::Full
+}
+
+fn clone_with_post_delegation_action_executor_access(
+    instructions: &[SVMInstruction<'_>],
+) -> PrivilegedAccess {
+    if !instruction_discriminant(&instructions[0]).is_some_and(|d| {
+        d == CLONE_ACCOUNT_DISCRIMINANT || d == CLONE_ACCOUNT_CONTINUE_DISCRIMINANT
+    }) {
+        return PrivilegedAccess::None;
+    }
+
+    PrivilegedAccess::CloneWithPostDelegationActionExecutor {
+        clone_accounts: instructions[0]
+            .accounts
+            .iter()
+            .map(|account_index| *account_index as usize)
+            .collect(),
+    }
 }
 
 fn instruction_program_id(
@@ -154,13 +215,28 @@ mod tests {
     }
 
     fn executed_transaction(payer: Pubkey, writable: Pubkey) -> ExecutedTransaction {
+        executed_transaction_with_writable_accounts(payer, vec![writable])
+    }
+
+    fn executed_transaction_with_writable_accounts(
+        payer: Pubkey,
+        writable_accounts: Vec<Pubkey>,
+    ) -> ExecutedTransaction {
+        let mut accounts = vec![(payer, privileged_account())];
+        accounts.extend(
+            writable_accounts
+                .into_iter()
+                .map(|pubkey| (pubkey, AccountSharedData::default())),
+        );
+        accounts.push((MAGIC_PROGRAM_ID, AccountSharedData::default()));
+        accounts.push((
+            POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID,
+            AccountSharedData::default(),
+        ));
+
         ExecutedTransaction {
             loaded_transaction: LoadedTransaction {
-                accounts: vec![
-                    (payer, privileged_account()),
-                    (writable, AccountSharedData::default()),
-                    (MAGIC_PROGRAM_ID, AccountSharedData::default()),
-                ],
+                accounts,
                 program_indices: vec![],
                 fee_details: FeeDetails::default(),
                 rollback_accounts: RollbackAccounts::default(),
@@ -200,8 +276,23 @@ mod tests {
     }
 
     fn message_with_programs(instructions: Vec<(Pubkey, Vec<u8>)>) -> SanitizedMessage {
-        let mut account_keys = vec![Pubkey::new_unique(), Pubkey::new_unique()];
-        account_keys.extend(instructions.iter().map(|(program, _)| *program));
+        message_with_program_accounts(
+            1,
+            instructions
+                .into_iter()
+                .map(|(program, data)| (program, data, vec![0, 1]))
+                .collect(),
+        )
+    }
+
+    fn message_with_program_accounts(
+        num_writable_accounts: u8,
+        instructions: Vec<(Pubkey, Vec<u8>, Vec<u8>)>,
+    ) -> SanitizedMessage {
+        let mut account_keys = vec![Pubkey::new_unique()];
+        account_keys.extend((0..num_writable_accounts).map(|_| Pubkey::new_unique()));
+        let program_id_start = account_keys.len();
+        account_keys.extend(instructions.iter().map(|(program, _, _)| *program));
 
         SanitizedMessage::Legacy(LegacyMessage::new(
             Message {
@@ -214,9 +305,9 @@ mod tests {
                 instructions: instructions
                     .into_iter()
                     .enumerate()
-                    .map(|(idx, (_, data))| CompiledInstruction {
-                        program_id_index: (idx + 2) as u8,
-                        accounts: vec![1],
+                    .map(|(idx, (_, data, accounts))| CompiledInstruction {
+                        program_id_index: (program_id_start + idx) as u8,
+                        accounts,
                         data,
                     })
                     .collect(),
@@ -314,6 +405,47 @@ mod tests {
         assert_eq!(
             tx.execution_details.status,
             Err(TransactionError::InvalidWritableAccount)
+        );
+    }
+
+    #[test]
+    fn privileged_payer_rejects_post_delegation_action_executor_with_extra_writable_account() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let extra_writable = Pubkey::new_unique();
+        let mut tx =
+            executed_transaction_with_writable_accounts(payer, vec![writable, extra_writable]);
+        let message = message_with_program_accounts(
+            2,
+            vec![
+                (
+                    MAGIC_PROGRAM_ID,
+                    CLONE_ACCOUNT_DISCRIMINANT.to_le_bytes().to_vec(),
+                    vec![0, 1],
+                ),
+                (
+                    POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID,
+                    vec![],
+                    vec![0, 1, 2],
+                ),
+            ],
+        );
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(
+            tx.execution_details.status,
+            Err(TransactionError::InvalidWritableAccount)
+        );
+        assert_eq!(
+            tx.execution_details.log_messages.as_ref().unwrap(),
+            &vec![
+                format!(
+                    "Program log: Account 2: {extra_writable} was illegally used as writable"
+                ),
+                "Program Magic11111111111111111111111111111111111111 failed: InvalidWritableAccount"
+                    .to_string(),
+            ]
         );
     }
 
