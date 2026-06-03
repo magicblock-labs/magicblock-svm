@@ -133,7 +133,7 @@ fn privileged_access(message: &impl SVMMessage) -> PrivilegedAccess {
         return clone_with_post_delegation_action_executor_access(&instructions);
     }
 
-    for instruction in instructions {
+    for (program, instruction) in message.program_instructions_iter() {
         let Some(program) = message
             .account_keys()
             .get(instruction.program_id_index as usize)
