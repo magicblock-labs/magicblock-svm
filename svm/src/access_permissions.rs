@@ -46,23 +46,6 @@ impl ExecutedTransaction {
                 return;
             }
             if !access.allows_fee_payer_write() && !payer.delegated() && payer.lamports_changed() {
-            .first()
-            .map(|(_, payer)| {
-                if payer.privileged() {
-                    privileged_access(message)
-                } else {
-                    PrivilegedAccess::None
-                }
-            })
-            .unwrap_or_default();
-        if let Some((pk, payer)) = accounts.first() {
-            if privileged_access == PrivilegedAccess::Full {
-                return;
-            }
-            if !privileged_access.allows_fee_payer_write()
-                && !payer.delegated()
-                && payer.lamports_changed()
-            {
                 self.execution_details.status = Err(TransactionError::InvalidAccountForFee);
                 let logs = self.execution_details.log_messages.get_or_insert_default();
                 logs.push(format!(
@@ -80,10 +63,7 @@ impl ExecutedTransaction {
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
         for (i, (pk, acc)) in accounts.iter().enumerate().skip(1) {
             // Enforce that any account intended to be writable must be a delegated account.
-            if message.is_writable(i)
-                && !is_mutable(acc)
-                && !privileged_access.allows_account_write(i)
-            {
+            if message.is_writable(i) && !is_mutable(acc) && !access.allows_account_write(i) {
                 offender.replace((i, pk));
                 break;
             }
@@ -102,14 +82,11 @@ impl ExecutedTransaction {
     }
 }
 
-#[derive(Default, PartialEq)]
+#[derive(PartialEq)]
 enum PrivilegedAccess {
-    #[default]
     None,
     Full,
-    CloneWithPostDelegationActionExecutor {
-        cloned_account: usize,
-    },
+    CloneWithPostDelegationActionExecutor { cloned_account: usize },
 }
 
 impl PrivilegedAccess {
@@ -141,12 +118,6 @@ fn privileged_access(message: &impl SVMMessage) -> PrivilegedAccess {
     }
 
     for (program, instruction) in message.program_instructions_iter() {
-        let Some(program) = message
-            .account_keys()
-            .get(instruction.program_id_index as usize)
-        else {
-            return PrivilegedAccess::None;
-        };
         if *program == loader_v4::ID {
             continue;
         }
@@ -202,16 +173,6 @@ fn clone_with_post_delegation_action_executor_access(
     PrivilegedAccess::CloneWithPostDelegationActionExecutor {
         cloned_account: cloned_account as usize,
     }
-}
-
-fn instruction_program_id(
-    message: &impl SVMMessage,
-    instruction: &SVMInstruction<'_>,
-) -> Option<Pubkey> {
-    message
-        .account_keys()
-        .get(instruction.program_id_index as usize)
-        .copied()
 }
 
 fn instruction_discriminant(instruction: &SVMInstruction<'_>) -> Option<u32> {
