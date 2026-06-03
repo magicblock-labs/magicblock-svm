@@ -132,13 +132,12 @@ impl PrivilegedAccess {
 }
 
 fn privileged_access(message: &impl SVMMessage) -> PrivilegedAccess {
-    let instructions = message.instructions_iter().collect::<Vec<_>>();
-    if instructions.len() == 2
-        && instruction_program_id(message, &instructions[0]) == Some(MAGIC_PROGRAM_ID)
-        && instruction_program_id(message, &instructions[1])
-            == Some(POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID)
-    {
-        return clone_with_post_delegation_action_executor_access(&instructions);
+    let is_post_action = message
+        .program_instructions_iter()
+        .zip(&[MAGIC_PROGRAM_ID, POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID])
+        .all(|(ix, prog)| ix.0 == prog);
+    if message.num_instructions() == 2 && is_post_action {
+        return clone_with_post_delegation_action_executor_access(message);
     }
 
     for (program, instruction) in message.program_instructions_iter() {
