@@ -37,7 +37,15 @@ impl ExecutedTransaction {
             return;
         }
         let accounts = &self.loaded_transaction.accounts;
-        let privileged_access = accounts
+        let mut access = PrivilegedAccess::None;
+        if let Some((pk, payer)) = accounts.first() {
+            if payer.privileged() {
+                access = privileged_access(message);
+            }
+            if access == PrivilegedAccess::Full {
+                return;
+            }
+            if !access.allows_fee_payer_write() && !payer.delegated() && payer.lamports_changed() {
             .first()
             .map(|(_, payer)| {
                 if payer.privileged() {
