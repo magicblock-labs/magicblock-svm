@@ -164,26 +164,38 @@ fn privileged_access(message: &impl SVMMessage) -> PrivilegedAccess {
 }
 
 fn clone_with_post_delegation_action_executor_access(
-    instructions: &[SVMInstruction<'_>],
+    message: &impl SVMMessage,
 ) -> PrivilegedAccess {
-    if !instruction_discriminant(&instructions[0]).is_some_and(|d| {
-        d == CLONE_ACCOUNT_DISCRIMINANT || d == CLONE_ACCOUNT_CONTINUE_DISCRIMINANT
-    }) {
+    let mut instructions = message.instructions_iter();
+    let Some(ix1) = instructions.next() else {
         return PrivilegedAccess::None;
-    }
+    };
+    let Some(ix2) = instructions.next() else {
+        return PrivilegedAccess::None;
+    };
+    const ALLOWED_IXS: [u32; 2] = [
+        CLONE_ACCOUNT_DISCRIMINANT,
+        CLONE_ACCOUNT_CONTINUE_DISCRIMINANT,
+    ];
+    if instruction_discriminant(&ix1)
+        .map(|d| !ALLOWED_IXS.contains(&d))
+        .unwrap_or(true)
+    {
+        return PrivilegedAccess::None;
+    };
 
-    let Some(cloned_account) = instructions[0]
+    let Some(cloned_account) = ix1
         .accounts
         .get(CLONED_ACCOUNT_INSTRUCTION_ACCOUNT_INDEX)
         .copied()
     else {
         return PrivilegedAccess::None;
     };
-    if instructions[1]
+    if ix2
         .accounts
         .get(CLONED_ACCOUNT_INSTRUCTION_ACCOUNT_INDEX)
-        .copied()
-        != Some(cloned_account)
+        .map(|&acc| acc != cloned_account)
+        .unwrap_or(true)
     {
         return PrivilegedAccess::None;
     }
