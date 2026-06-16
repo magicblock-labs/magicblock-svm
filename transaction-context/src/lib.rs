@@ -1026,9 +1026,14 @@ impl BorrowedInstructionAccount<'_, '_> {
     #[cfg(not(target_os = "solana"))]
     pub fn can_data_be_resized(&self, new_len: usize) -> Result<(), InstructionError> {
         let old_len = self.get_data().len();
-        // Only the owner can change the length of the data
-        if new_len != old_len && !self.is_owned_by_current_program() {
-            return Err(InstructionError::AccountDataSizeChanged);
+        if new_len != old_len {
+            if !self.is_owned_by_current_program() {
+                // Only the owner can change the length of the data
+                return Err(InstructionError::AccountDataSizeChanged);
+            } else if self.account.ephemeral() {
+                // Ephmeral accounts can only be resized with specialized builtin instruction
+                return Err(InstructionError::InvalidRealloc);
+            }
         }
         self.transaction_context
             .accounts
