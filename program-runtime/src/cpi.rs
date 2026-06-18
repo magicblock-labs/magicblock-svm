@@ -7,10 +7,10 @@ use {
         serialization::{create_memory_region_of_account, modify_memory_region_of_account},
     },
     solana_account_info::AccountInfo,
-    solana_instruction::{error::InstructionError, AccountMeta, Instruction},
+    solana_instruction::{AccountMeta, Instruction, error::InstructionError},
     solana_loader_v3_interface::instruction as bpf_loader_upgradeable,
     solana_program_entrypoint::MAX_PERMITTED_DATA_INCREASE,
-    solana_pubkey::{Pubkey, PubkeyError, MAX_SEEDS},
+    solana_pubkey::{MAX_SEEDS, Pubkey, PubkeyError},
     solana_sbpf::{ebpf, memory_region::MemoryMapping},
     solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, native_loader},
     solana_stable_layout::stable_instruction::StableInstruction,
@@ -18,8 +18,8 @@ use {
     solana_svm_measure::measure::Measure,
     solana_svm_timings::ExecuteTimings,
     solana_transaction_context::{
-        vm_slice::VmSlice, BorrowedInstructionAccount, IndexOfAccount,
-        MAX_ACCOUNTS_PER_INSTRUCTION, MAX_INSTRUCTION_DATA_LEN,
+        BorrowedInstructionAccount, IndexOfAccount, MAX_ACCOUNTS_PER_INSTRUCTION,
+        MAX_INSTRUCTION_DATA_LEN, vm_slice::VmSlice,
     },
     std::mem,
     thiserror::Error,
@@ -247,7 +247,7 @@ pub struct CallerAccount<'a> {
 
 impl<'a> CallerAccount<'a> {
     pub fn get_serialized_data(
-        memory_mapping: &solana_sbpf::memory_region::MemoryMapping<'_>,
+        memory_mapping: &solana_sbpf::memory_region::MemoryMapping,
         vm_addr: u64,
         len: u64,
         stricter_abi_and_runtime_constraints: bool,
@@ -286,7 +286,7 @@ impl<'a> CallerAccount<'a> {
     // Create a CallerAccount given an AccountInfo.
     pub fn from_account_info(
         invoke_context: &InvokeContext,
-        memory_mapping: &solana_sbpf::memory_region::MemoryMapping<'_>,
+        memory_mapping: &solana_sbpf::memory_region::MemoryMapping,
         check_aligned: bool,
         _vm_addr: u64,
         account_info: &solana_account_info::AccountInfo,
@@ -296,7 +296,7 @@ impl<'a> CallerAccount<'a> {
 
         let stricter_abi_and_runtime_constraints = invoke_context
             .get_feature_set()
-            .stricter_abi_and_runtime_constraints;
+            .virtual_address_space_adjustments;
         let account_data_direct_mapping =
             invoke_context.get_feature_set().account_data_direct_mapping;
 
@@ -409,7 +409,7 @@ impl<'a> CallerAccount<'a> {
     // Create a CallerAccount given a SolAccountInfo.
     fn from_sol_account_info(
         invoke_context: &InvokeContext,
-        memory_mapping: &solana_sbpf::memory_region::MemoryMapping<'_>,
+        memory_mapping: &solana_sbpf::memory_region::MemoryMapping,
         check_aligned: bool,
         vm_addr: u64,
         account_info: &SolAccountInfo,
@@ -419,7 +419,7 @@ impl<'a> CallerAccount<'a> {
 
         let stricter_abi_and_runtime_constraints = invoke_context
             .get_feature_set()
-            .stricter_abi_and_runtime_constraints;
+            .virtual_address_space_adjustments;
         let account_data_direct_mapping =
             invoke_context.get_feature_set().account_data_direct_mapping;
 
@@ -513,7 +513,7 @@ pub trait SyscallInvokeSigned {
     fn translate_accounts<'a>(
         account_infos_addr: u64,
         account_infos_len: u64,
-        memory_mapping: &MemoryMapping<'_>,
+        memory_mapping: &MemoryMapping,
         invoke_context: &mut InvokeContext,
         check_aligned: bool,
     ) -> Result<Vec<TranslatedAccount<'a>>, Error>;
@@ -592,7 +592,7 @@ pub fn translate_instruction_rust(
 pub fn translate_accounts_rust<'a>(
     account_infos_addr: u64,
     account_infos_len: u64,
-    memory_mapping: &MemoryMapping<'_>,
+    memory_mapping: &MemoryMapping,
     invoke_context: &mut InvokeContext,
     check_aligned: bool,
 ) -> Result<Vec<TranslatedAccount<'a>>, Error> {
@@ -730,7 +730,7 @@ pub fn translate_instruction_c(
 pub fn translate_accounts_c<'a>(
     account_infos_addr: u64,
     account_infos_len: u64,
-    memory_mapping: &MemoryMapping<'_>,
+    memory_mapping: &MemoryMapping,
     invoke_context: &mut InvokeContext,
     check_aligned: bool,
 ) -> Result<Vec<TranslatedAccount<'a>>, Error> {
@@ -822,7 +822,7 @@ pub fn cpi_common<S: SyscallInvokeSigned>(
     }
     let stricter_abi_and_runtime_constraints = invoke_context
         .get_feature_set()
-        .stricter_abi_and_runtime_constraints;
+        .virtual_address_space_adjustments;
     let account_data_direct_mapping = invoke_context.get_feature_set().account_data_direct_mapping;
     let check_aligned = invoke_context.get_check_aligned();
 
@@ -945,7 +945,7 @@ where
 {
     let stricter_abi_and_runtime_constraints = invoke_context
         .get_feature_set()
-        .stricter_abi_and_runtime_constraints;
+        .virtual_address_space_adjustments;
 
     // In the same vein as the other check_account_info_pointer() checks, we don't lock
     // this pointer to a specific address but we don't want it to be inside accounts, or
@@ -1000,14 +1000,14 @@ fn translate_accounts_common<'a, T, F>(
     account_infos: &[T],
     account_infos_addr: u64,
     invoke_context: &mut InvokeContext,
-    memory_mapping: &MemoryMapping<'_>,
+    memory_mapping: &MemoryMapping,
     check_aligned: bool,
     do_translate: F,
 ) -> Result<Vec<TranslatedAccount<'a>>, Error>
 where
     F: Fn(
         &InvokeContext,
-        &MemoryMapping<'_>,
+        &MemoryMapping,
         bool,
         u64,
         &T,
@@ -1029,7 +1029,7 @@ where
 
     let stricter_abi_and_runtime_constraints = invoke_context
         .get_feature_set()
-        .stricter_abi_and_runtime_constraints;
+        .virtual_address_space_adjustments;
     let account_data_direct_mapping = invoke_context.get_feature_set().account_data_direct_mapping;
 
     for (instruction_account_index, instruction_account) in
@@ -1265,7 +1265,7 @@ fn update_caller_account_region(
 // accounts (regardless of the current size of an account).
 fn update_caller_account(
     invoke_context: &InvokeContext,
-    memory_mapping: &MemoryMapping<'_>,
+    memory_mapping: &MemoryMapping,
     check_aligned: bool,
     caller_account: &mut CallerAccount<'_>,
     callee_account: &mut BorrowedInstructionAccount<'_, '_>,
@@ -1371,7 +1371,7 @@ mod tests {
         solana_sdk_ids::{bpf_loader, system_program},
         solana_svm_feature_set::SVMFeatureSet,
         solana_transaction_context::{
-            transaction_accounts::KeyedAccountSharedData, IndexOfAccount, InstructionAccount,
+            IndexOfAccount, InstructionAccount, transaction_accounts::KeyedAccountSharedData,
         },
         std::{
             cell::{Cell, RefCell},
@@ -1405,7 +1405,7 @@ mod tests {
                 .map(|a| (a.0, a.1))
                 .collect::<Vec<KeyedAccountSharedData>>();
             let mut feature_set = SVMFeatureSet::all_enabled();
-            feature_set.stricter_abi_and_runtime_constraints = false;
+            feature_set.virtual_address_space_adjustments = false;
             let feature_set = &feature_set;
             with_mock_invoke_context_with_feature_set!(
                 $invoke_context,

@@ -8,10 +8,10 @@ use {
         stable_log,
         sysvar_cache::SysvarCache,
     },
-    solana_account::{create_account_shared_data_for_test, AccountSharedData},
+    solana_account::{AccountSharedData, create_account_shared_data_for_test},
     solana_epoch_schedule::EpochSchedule,
     solana_hash::Hash,
-    solana_instruction::{error::InstructionError, AccountMeta, Instruction},
+    solana_instruction::{AccountMeta, Instruction, error::InstructionError},
     solana_pubkey::Pubkey,
     solana_sbpf::{
         ebpf::MM_HEAP_START,
@@ -26,14 +26,14 @@ use {
     },
     solana_svm_callback::InvokeContextCallback,
     solana_svm_feature_set::SVMFeatureSet,
-    solana_svm_log_collector::{ic_msg, LogCollector},
+    solana_svm_log_collector::{LogCollector, ic_msg},
     solana_svm_measure::measure::Measure,
     solana_svm_timings::{ExecuteDetailsTimings, ExecuteTimings},
     solana_svm_transaction::{instruction::SVMInstruction, svm_message::SVMMessage},
     solana_svm_type_overrides::sync::Arc,
     solana_transaction_context::{
-        transaction_accounts::KeyedAccountSharedData, IndexOfAccount, InstructionAccount,
-        InstructionContext, TransactionContext, MAX_ACCOUNTS_PER_TRANSACTION,
+        IndexOfAccount, InstructionAccount, InstructionContext, MAX_ACCOUNTS_PER_TRANSACTION,
+        TransactionContext, transaction_accounts::KeyedAccountSharedData,
     },
     std::{
         alloc::Layout,
@@ -274,6 +274,30 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
     /// `solana_instruction::TRANSACTION_LEVEL_STACK_HEIGHT`
     pub fn get_stack_height(&self) -> usize {
         self.transaction_context.get_instruction_stack_height()
+    }
+
+    /// Entrypoint for a cross-program invocation from a builtin program.
+    ///
+    /// Takes signer seeds and derives PDAs internally via
+    /// `create_program_address`, mirroring the SBF CPI path.
+    pub fn native_invoke_signed(
+        &mut self,
+        instruction: Instruction,
+        signer_seeds: &[&[&[u8]]],
+    ) -> Result<(), InstructionError> {
+        let caller_program_id = *self
+            .transaction_context
+            .get_current_instruction_context()?
+            .get_program_key()?;
+        let signers = signer_seeds
+            .iter()
+            .map(|seeds| Pubkey::create_program_address(seeds, &caller_program_id))
+            .collect::<Result<Vec<Pubkey>, solana_pubkey::PubkeyError>>()
+            .map_err(|e| e as u64)?;
+        self.prepare_next_instruction(instruction, &signers)?;
+        let mut compute_units_consumed = 0;
+        self.process_instruction(&mut compute_units_consumed, &mut ExecuteTimings::default())?;
+        Ok(())
     }
 
     /// Entrypoint for a cross-program invocation from a builtin program
@@ -644,12 +668,6 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
             .program_runtime_environments_for_deployment
     }
 
-    pub fn is_stake_raise_minimum_delegation_to_1_sol_active(&self) -> bool {
-        self.environment_config
-            .feature_set
-            .stake_raise_minimum_delegation_to_1_sol
-    }
-
     pub fn is_deprecate_legacy_vote_ixs_active(&self) -> bool {
         self.environment_config
             .feature_set
@@ -978,7 +996,7 @@ mod tests {
         solana_keypair::Keypair,
         solana_rent::Rent,
         solana_signer::Signer,
-        solana_transaction::{sanitized::SanitizedTransaction, Transaction},
+        solana_transaction::{Transaction, sanitized::SanitizedTransaction},
         solana_transaction_context::MAX_ACCOUNTS_PER_INSTRUCTION,
         std::collections::HashSet,
         test_case::test_case,

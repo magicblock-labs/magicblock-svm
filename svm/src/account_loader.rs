@@ -4,7 +4,7 @@ use {
     crate::{
         account_overrides::AccountOverrides,
         rent_calculator::{
-            check_rent_state_with_account, get_account_rent_state, RENT_EXEMPT_RENT_EPOCH,
+            RENT_EXEMPT_RENT_EPOCH, check_rent_state_with_account, get_account_rent_state,
         },
         rollback_accounts::RollbackAccounts,
         transaction_error_metrics::TransactionErrorMetrics,
@@ -12,8 +12,8 @@ use {
     },
     ahash::{AHashMap, AHashSet},
     solana_account::{
-        state_traits::StateMut, Account, AccountSharedData, ReadableAccount, WritableAccount,
-        PROGRAM_OWNERS,
+        Account, AccountSharedData, PROGRAM_OWNERS, ReadableAccount, WritableAccount,
+        state_traits::StateMut,
     },
     solana_clock::Slot,
     solana_fee_structure::FeeDetails,
@@ -21,7 +21,7 @@ use {
     solana_instructions_sysvar::construct_instructions_data,
     solana_loader_v3_interface::state::UpgradeableLoaderState,
     solana_nonce::state::State as NonceState,
-    solana_nonce_account::{get_system_account_kind, SystemAccountKind},
+    solana_nonce_account::{SystemAccountKind, get_system_account_kind},
     solana_program_runtime::execution_budget::{
         SVMTransactionExecutionAndFeeBudgetLimits, SVMTransactionExecutionBudget,
     },
@@ -34,7 +34,7 @@ use {
     solana_svm_callback::{AccountState, TransactionProcessingCallback},
     solana_svm_feature_set::SVMFeatureSet,
     solana_svm_transaction::svm_message::SVMMessage,
-    solana_transaction_context::{transaction_accounts::KeyedAccountSharedData, IndexOfAccount},
+    solana_transaction_context::{IndexOfAccount, transaction_accounts::KeyedAccountSharedData},
     solana_transaction_error::{TransactionError, TransactionResult as Result},
     std::num::{NonZeroU32, Saturating},
 };
@@ -575,28 +575,27 @@ fn load_transaction_accounts_simd186<CB: TransactionProcessingCallback>(
             // can be deleted.
             //
             // If this is a valid LoaderV3 program...
-            if bpf_loader_upgradeable::check_id(account.owner()) {
-                if let Ok(UpgradeableLoaderState::Program {
+            if bpf_loader_upgradeable::check_id(account.owner())
+                && let Ok(UpgradeableLoaderState::Program {
                     programdata_address,
                 }) = account.state()
+            {
+                // ...its programdata was not already counted and will not later be counted...
+                if !account_keys.iter().any(|key| programdata_address == *key)
+                    && !additional_loaded_accounts.contains(&programdata_address)
                 {
-                    // ...its programdata was not already counted and will not later be counted...
-                    if !account_keys.iter().any(|key| programdata_address == *key)
-                        && !additional_loaded_accounts.contains(&programdata_address)
+                    // ...and the programdata account exists (if it doesn't, it is *not* a load failure)...
+                    if let Some(programdata_account) =
+                        account_loader.load_account(&programdata_address)
                     {
-                        // ...and the programdata account exists (if it doesn't, it is *not* a load failure)...
-                        if let Some(programdata_account) =
-                            account_loader.load_account(&programdata_address)
-                        {
-                            // ...count programdata toward this transaction's total size.
-                            loaded_transaction_accounts.increase_calculated_data_size(
-                                TRANSACTION_ACCOUNT_BASE_SIZE
-                                    .saturating_add(programdata_account.data().len()),
-                                loaded_accounts_bytes_limit,
-                                error_metrics,
-                            )?;
-                            additional_loaded_accounts.insert(programdata_address);
-                        }
+                        // ...count programdata toward this transaction's total size.
+                        loaded_transaction_accounts.increase_calculated_data_size(
+                            TRANSACTION_ACCOUNT_BASE_SIZE
+                                .saturating_add(programdata_account.data().len()),
+                            loaded_accounts_bytes_limit,
+                            error_metrics,
+                        )?;
+                        additional_loaded_accounts.insert(programdata_address);
                     }
                 }
             }
@@ -740,7 +739,8 @@ fn load_transaction_account<CB: TransactionProcessingCallback>(
     rent: &Rent,
 ) -> LoadedTransactionAccount {
     let is_writable = message.is_writable(account_index);
-    let loaded_account = if solana_sdk_ids::sysvar::instructions::check_id(account_key) {
+
+    if solana_sdk_ids::sysvar::instructions::check_id(account_key) {
         // Since the instructions sysvar is constructed by the SVM and modified
         // for each transaction instruction, it cannot be loaded.
         LoadedTransactionAccount {
@@ -768,9 +768,7 @@ fn load_transaction_account<CB: TransactionProcessingCallback>(
             loaded_size: default_account.data().len(),
             account: default_account,
         }
-    };
-
-    loaded_account
+    }
 }
 
 /// Accumulate loaded account data size into `accumulated_accounts_data_size`.
@@ -840,9 +838,9 @@ mod tests {
         solana_keypair::Keypair,
         solana_loader_v3_interface::state::UpgradeableLoaderState,
         solana_message::{
+            LegacyMessage, Message, MessageHeader, SanitizedMessage,
             compiled_instruction::CompiledInstruction,
             v0::{LoadedAddresses, LoadedMessage},
-            LegacyMessage, Message, MessageHeader, SanitizedMessage,
         },
         solana_native_token::LAMPORTS_PER_SOL,
         solana_nonce::{self as nonce, versions::Versions as NonceVersions},
@@ -858,9 +856,9 @@ mod tests {
         solana_signer::Signer,
         solana_svm_callback::{InvokeContextCallback, TransactionProcessingCallback},
         solana_system_transaction::transfer,
-        solana_transaction::{sanitized::SanitizedTransaction, Transaction},
+        solana_transaction::{Transaction, sanitized::SanitizedTransaction},
         solana_transaction_context::{
-            transaction_accounts::KeyedAccountSharedData, TransactionContext,
+            TransactionContext, transaction_accounts::KeyedAccountSharedData,
         },
         solana_transaction_error::{TransactionError, TransactionResult as Result},
         std::{
@@ -1355,13 +1353,15 @@ mod tests {
         let requested_data_size_limit = NonZeroU32::new(data_size as u32).unwrap();
 
         // OK - loaded data size is up to limit
-        assert!(accumulate_and_check_loaded_account_data_size(
-            &mut accumulated_data_size,
-            data_size,
-            requested_data_size_limit,
-            &mut error_metrics
-        )
-        .is_ok());
+        assert!(
+            accumulate_and_check_loaded_account_data_size(
+                &mut accumulated_data_size,
+                data_size,
+                requested_data_size_limit,
+                &mut error_metrics
+            )
+            .is_ok()
+        );
         assert_eq!(data_size as u32, accumulated_data_size.0);
 
         // fail - loading more data that would exceed limit
@@ -2829,7 +2829,7 @@ mod tests {
                 1,
                 vec![0; rng.gen_range(0, 128)],
                 Pubkey::new_unique(),
-                rng.gen(),
+                rng.r#gen(),
                 u64::MAX,
             );
             mock_bank.accounts_map.insert(Pubkey::new_unique(), account);
@@ -2843,7 +2843,7 @@ mod tests {
                 LAMPORTS_PER_SOL,
                 vec![0; rng.gen_range(0, 32)],
                 system_program::id(),
-                rng.gen(),
+                rng.r#gen(),
                 u64::MAX,
             );
             mock_bank.accounts_map.insert(fee_payer, account);
@@ -2860,7 +2860,7 @@ mod tests {
                     1,
                     vec![0; rng.gen_range(0, 512)],
                     *loader,
-                    rng.gen(),
+                    rng.r#gen(),
                     u64::MAX,
                 );
 
@@ -2871,14 +2871,14 @@ mod tests {
                 // this will always fail at execution but we are merely testing the data size accounting here
                 if *loader == bpf_loader_upgradeable::id() && account.data().len() >= 64 {
                     let programdata_address = Pubkey::new_unique();
-                    let has_programdata = rng.gen();
+                    let has_programdata = rng.r#gen();
 
                     if has_programdata {
                         let programdata_account = AccountSharedData::create(
                             1,
                             vec![0; rng.gen_range(0, 512)],
                             *loader,
-                            rng.gen(),
+                            rng.r#gen(),
                             u64::MAX,
                         );
                         programdata_tracker.insert(
@@ -2891,7 +2891,7 @@ mod tests {
                         loader_owned_accounts.push(programdata_address);
                     }
 
-                    if has_programdata || rng.gen() {
+                    if has_programdata || rng.r#gen() {
                         account
                             .set_state(&UpgradeableLoaderState::Program {
                                 programdata_address,
@@ -2935,8 +2935,8 @@ mod tests {
 
                     accounts.push(AccountMeta {
                         pubkey,
-                        is_writable: rng.gen(),
-                        is_signer: rng.gen() && rng.gen(),
+                        is_writable: rng.r#gen(),
+                        is_signer: rng.r#gen() && rng.r#gen(),
                     });
                 }
 
@@ -2971,11 +2971,10 @@ mod tests {
 
                 if let Some((programdata_address, programdata_size)) =
                     programdata_tracker.get(pubkey)
+                    && counted_programdatas.get(programdata_address).is_none()
                 {
-                    if counted_programdatas.get(programdata_address).is_none() {
-                        expected_size += TRANSACTION_ACCOUNT_BASE_SIZE + programdata_size;
-                        counted_programdatas.insert(*programdata_address);
-                    }
+                    expected_size += TRANSACTION_ACCOUNT_BASE_SIZE + programdata_size;
+                    counted_programdatas.insert(*programdata_address);
                 }
             }
 

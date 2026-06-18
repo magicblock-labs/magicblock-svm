@@ -194,8 +194,8 @@ mod tests {
         solana_fee_structure::FeeDetails,
         solana_hash::Hash,
         solana_message::{
-            compiled_instruction::CompiledInstruction, LegacyMessage, Message, MessageHeader,
-            SanitizedMessage,
+            LegacyMessage, Message, MessageHeader, SanitizedMessage,
+            compiled_instruction::CompiledInstruction,
         },
         solana_program_runtime::execution_budget::SVMTransactionExecutionBudget,
         std::collections::{HashMap, HashSet},

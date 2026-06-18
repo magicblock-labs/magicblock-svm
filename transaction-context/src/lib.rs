@@ -23,6 +23,9 @@ use {
 #[cfg(not(target_os = "solana"))]
 use {solana_account::WritableAccount, solana_rent::Rent};
 
+pub mod instruction;
+pub mod instruction_accounts;
+pub mod transaction;
 pub mod transaction_accounts;
 pub mod vm_slice;
 
