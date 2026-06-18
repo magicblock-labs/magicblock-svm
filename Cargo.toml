@@ -1,5 +1,6 @@
 [workspace]
 members = ["program-runtime", "solana-account", "svm", "transaction-context"]
+default-members = ["solana-account", "svm", "transaction-context"]
 resolver = "2"
 
 [workspace.package]
