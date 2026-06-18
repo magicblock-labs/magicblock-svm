@@ -1955,7 +1955,7 @@ mod tests {
             .write()
             .unwrap()
             .extract(
-                &mut vec![(key, ProgramCacheMatchCriteria::NoCriteria)],
+                &mut vec![(key, ProgramCacheMatchCriteria::NoCriteria, 0)],
                 &mut loaded_programs_for_tx_batch,
                 &program_runtime_environments,
                 true,

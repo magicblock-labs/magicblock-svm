@@ -857,6 +857,7 @@ mod tests {
         solana_signature::Signature,
         solana_signer::Signer,
         solana_svm_callback::{InvokeContextCallback, TransactionProcessingCallback},
+        solana_svm_transaction::svm_message::SVMStaticMessage,
         solana_system_transaction::transfer,
         solana_transaction::{sanitized::SanitizedTransaction, Transaction},
         solana_transaction_context::{

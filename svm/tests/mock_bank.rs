@@ -369,6 +369,7 @@ pub fn create_custom_loader<'a>() -> BuiltinProgram<InvokeContext<'a, 'a>> {
         sanitize_user_provided_values: true,
         enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V3,
         optimize_rodata: false,
+        allow_memory_region_zero: false,
         aligned_memory_mapping: false,
     };
 

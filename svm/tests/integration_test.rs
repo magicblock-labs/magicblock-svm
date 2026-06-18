@@ -44,7 +44,10 @@ use {
         },
     },
     solana_svm_feature_set::SVMFeatureSet,
-    solana_svm_transaction::{instruction::SVMInstruction, svm_message::SVMMessage},
+    solana_svm_transaction::{
+        instruction::SVMInstruction,
+        svm_message::{SVMMessage, SVMStaticMessage},
+    },
     solana_svm_type_overrides::sync::{Arc, RwLock},
     solana_system_interface::{instruction as system_instruction, program as system_program},
     solana_system_transaction as system_transaction,
@@ -358,7 +361,11 @@ impl SvmTestEnvironment<'_> {
                         .global_program_cache
                         .write()
                         .unwrap()
-                        .merge(&self.batch_processor.environments, programs_modified_by_tx);
+                        .merge(
+                            &self.batch_processor.environments,
+                            EXECUTION_SLOT,
+                            programs_modified_by_tx,
+                        );
                 }
             }
         }
@@ -557,7 +564,7 @@ impl SvmTestEntry {
                 let message = SanitizedTransaction::from_transaction_for_tests(item.transaction);
                 let check_result = item.check_result.map(|tx_details| {
                     let compute_budget_limits = process_test_compute_budget_instructions(
-                        SVMMessage::program_instructions_iter(&message),
+                        message.program_instructions_iter(),
                     );
                     let signature_count = message
                         .num_transaction_signatures()
@@ -596,7 +603,8 @@ impl SvmTestEntry {
                 }
             }
 
-            if SVMMessage::program_instructions_iter(tx)
+            if tx
+                .program_instructions_iter()
                 .any(|(program_id, _)| bpf_loader_upgradeable::check_id(program_id))
             {
                 access.privileged_payers.insert(*tx.fee_payer());
