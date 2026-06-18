@@ -53,7 +53,7 @@ use {
     solana_svm_timings::{ExecuteTimingType, ExecuteTimings},
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_svm_type_overrides::sync::{atomic::Ordering, Arc, RwLock, RwLockReadGuard},
-    solana_transaction_context::{ExecutionRecord, TransactionContext},
+    solana_transaction_context::transaction::{ExecutionRecord, TransactionContext},
     solana_transaction_error::{TransactionError, TransactionResult},
     std::{
         collections::HashSet,
@@ -787,20 +787,25 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         limit_to_load_programs: bool,
         increment_usage_counter: bool,
     ) {
-        let mut missing_programs: Vec<(Pubkey, ProgramCacheMatchCriteria)> = program_accounts_set
-            .iter()
-            .map(|pubkey| {
-                let match_criteria = if check_program_modification_slot {
-                    get_program_modification_slot(account_loader, pubkey)
-                        .map_or(ProgramCacheMatchCriteria::Tombstone, |slot| {
+        let mut missing_programs: Vec<(Pubkey, ProgramCacheMatchCriteria, u64)> =
+            program_accounts_set
+                .iter()
+                .map(|pubkey| {
+                    let modification_slot = if check_program_modification_slot {
+                        get_program_modification_slot(account_loader, pubkey).ok()
+                    } else {
+                        None
+                    };
+                    let match_criteria = if check_program_modification_slot {
+                        modification_slot.map_or(ProgramCacheMatchCriteria::Tombstone, |slot| {
                             ProgramCacheMatchCriteria::DeployedOnOrAfterSlot(slot)
                         })
-                } else {
-                    ProgramCacheMatchCriteria::NoCriteria
-                };
-                (*pubkey, match_criteria)
-            })
-            .collect();
+                    } else {
+                        ProgramCacheMatchCriteria::NoCriteria
+                    };
+                    (*pubkey, match_criteria, modification_slot.unwrap_or(0))
+                })
+                .collect();
 
         let mut count_hits_and_misses = true;
         loop {
@@ -828,7 +833,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         false,
                     )
                     .expect("called load_program_with_pubkey() with nonexistent account");
-                    (key, program)
+                    let last_modification_slot =
+                        get_program_modification_slot(account_loader, &key).unwrap_or(self.slot);
+                    (key, last_modification_slot, program)
                 });
 
                 let task_waiter = Arc::clone(&global_program_cache.loading_task_waiter);
@@ -836,7 +843,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 // Unlock the global cache again.
             };
 
-            if let Some((key, program)) = program_to_store {
+            if let Some((key, last_modification_slot, program)) = program_to_store {
                 program_cache_for_tx_batch.loaded_missing = true;
                 let mut global_program_cache = self.global_program_cache.write().unwrap();
                 // Submit our last completed loading task.
@@ -844,6 +851,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     program_runtime_environments_for_execution,
                     self.slot,
                     key,
+                    last_modification_slot,
                     program,
                 ) && limit_to_load_programs
                 {
@@ -904,6 +912,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             environment.rent.clone(),
             compute_budget.max_instruction_stack_depth,
             compute_budget.max_instruction_trace_length,
+            tx.num_instructions(),
         );
 
         let pre_account_state_info =
@@ -1047,23 +1056,34 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     == TRANSACTION_LEVEL_STACK_HEIGHT)
                 .unwrap_or(true));
 
-            let ix_trace = transaction_context.take_instruction_trace();
+            let (ix_trace, instruction_accounts, instruction_data) =
+                transaction_context.take_instruction_trace();
             let mut outer_instructions = Vec::new();
-            for ix_in_trace in ix_trace.into_iter() {
+            for (index_in_trace, ix_in_trace) in ix_trace.into_iter().enumerate() {
                 let stack_height = ix_in_trace.nesting_level.saturating_add(1);
-                if stack_height == TRANSACTION_LEVEL_STACK_HEIGHT {
+                if usize::from(stack_height) == TRANSACTION_LEVEL_STACK_HEIGHT {
                     outer_instructions.push(Vec::new());
                 } else if let Some(inner_instructions) = outer_instructions.last_mut() {
                     let stack_height = u8::try_from(stack_height).unwrap_or(u8::MAX);
+                    let instruction_data = instruction_data
+                        .get(index_in_trace)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_owned();
+                    let instruction_accounts = instruction_accounts
+                        .get(index_in_trace)
+                        .map(|accounts| {
+                            accounts
+                                .iter()
+                                .map(|acc| acc.index_in_transaction as u8)
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     inner_instructions.push(InnerInstruction {
                         instruction: CompiledInstruction::new_from_raw_parts(
                             ix_in_trace.program_account_index_in_tx as u8,
-                            ix_in_trace.instruction_data.into_owned(),
-                            ix_in_trace
-                                .instruction_accounts
-                                .iter()
-                                .map(|acc| acc.index_in_transaction as u8)
-                                .collect(),
+                            instruction_data,
+                            instruction_accounts,
                         ),
                         stack_height,
                     });
@@ -1109,6 +1129,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         self.global_program_cache.write().unwrap().assign_program(
             &self.environments,
             program_id,
+            self.slot,
             Arc::new(builtin),
         );
     }
@@ -1308,6 +1329,7 @@ mod tests {
             Rent::default(),
             3,
             instruction_trace.len(),
+            1,
         );
         for (index_in_trace, stack_height) in instruction_trace.into_iter().enumerate() {
             while stack_height <= transaction_context.get_instruction_stack_height() {

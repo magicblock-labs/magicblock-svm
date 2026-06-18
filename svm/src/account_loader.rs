@@ -2154,6 +2154,7 @@ mod tests {
             rent.clone(),
             compute_budget.max_instruction_stack_depth,
             compute_budget.max_instruction_trace_length,
+            sanitized_tx.message().num_instructions(),
         );
 
         assert_eq!(

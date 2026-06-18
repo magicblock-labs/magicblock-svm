@@ -26,6 +26,25 @@ use {solana_account::WritableAccount, solana_rent::Rent};
 pub mod transaction_accounts;
 pub mod vm_slice;
 
+pub mod instruction {
+    pub use crate::{InstructionContext, InstructionFrame};
+}
+
+pub mod instruction_accounts {
+    pub use crate::{BorrowedInstructionAccount, InstructionAccount};
+}
+
+pub mod transaction {
+    use std::borrow::Cow;
+
+    pub use crate::{ExecutionRecord, TransactionContext, TransactionReturnData};
+    pub type InstructionTrace<'ix_data> = (
+        Vec<crate::InstructionFrame<'ix_data>>,
+        Vec<Box<[crate::InstructionAccount]>>,
+        Vec<Cow<'ix_data, [u8]>>,
+    );
+}
+
 pub const MAX_ACCOUNTS_PER_TRANSACTION: usize = 256;
 // This is one less than MAX_ACCOUNTS_PER_TRANSACTION because
 // one index is used as NON_DUP_MARKER in ABI v0 and v1.
@@ -135,6 +154,7 @@ impl<'ix_data> TransactionContext<'ix_data> {
         rent: Rent,
         instruction_stack_capacity: usize,
         instruction_trace_capacity: usize,
+        _number_of_top_level_instructions: usize,
     ) -> Self {
         Self {
             accounts: Rc::new(TransactionAccounts::new(transaction_accounts)),
@@ -264,6 +284,17 @@ impl<'ix_data> TransactionContext<'ix_data> {
         self.get_instruction_context_at_nesting_level(level)
     }
 
+    pub fn get_current_instruction_index(&self) -> Result<usize, InstructionError> {
+        let level = self
+            .get_instruction_stack_height()
+            .checked_sub(1)
+            .ok_or(InstructionError::CallDepth)?;
+        self.instruction_stack
+            .get(level)
+            .copied()
+            .ok_or(InstructionError::CallDepth)
+    }
+
     /// Returns a view on the next instruction. This function assumes it has already been
     /// configured with the correct values in `prepare_next_instruction` or
     /// `prepare_next_top_level_instruction`
@@ -300,6 +331,27 @@ impl<'ix_data> TransactionContext<'ix_data> {
         Ok(())
     }
 
+    pub fn configure_instruction_at_index(
+        &mut self,
+        instruction_index: usize,
+        program_index: IndexOfAccount,
+        instruction_accounts: Vec<InstructionAccount>,
+        deduplication_map: Vec<u16>,
+        instruction_data: Cow<'ix_data, [u8]>,
+        _caller_index: Option<u16>,
+    ) -> Result<(), InstructionError> {
+        debug_assert_eq!(deduplication_map.len(), MAX_ACCOUNTS_PER_TRANSACTION);
+        let instruction = self
+            .instruction_trace
+            .get_mut(instruction_index)
+            .ok_or(InstructionError::MaxInstructionTraceLengthExceeded)?;
+        instruction.program_account_index_in_tx = program_index;
+        instruction.instruction_accounts = instruction_accounts;
+        instruction.instruction_data = instruction_data;
+        instruction.dedup_map = deduplication_map;
+        Ok(())
+    }
+
     /// A version of `configure_next_instruction` to help creating the deduplication map in tests
     pub fn configure_next_instruction_for_tests(
         &mut self,
@@ -322,6 +374,32 @@ impl<'ix_data> TransactionContext<'ix_data> {
             instruction_accounts,
             dedup_map,
             Cow::Owned(instruction_data),
+        )
+    }
+
+    pub fn configure_top_level_instruction_for_tests(
+        &mut self,
+        program_index: IndexOfAccount,
+        instruction_accounts: Vec<InstructionAccount>,
+        instruction_data: Vec<u8>,
+    ) -> Result<(), InstructionError> {
+        debug_assert!(instruction_accounts.len() <= u16::MAX as usize);
+        let mut dedup_map = vec![u16::MAX; MAX_ACCOUNTS_PER_TRANSACTION];
+        for (idx, account) in instruction_accounts.iter().enumerate() {
+            let index_in_instruction = dedup_map
+                .get_mut(account.index_in_transaction as usize)
+                .unwrap();
+            if *index_in_instruction == u16::MAX {
+                *index_in_instruction = idx as u16;
+            }
+        }
+        self.configure_instruction_at_index(
+            self.get_instruction_trace_length(),
+            program_index,
+            instruction_accounts,
+            dedup_map,
+            Cow::Owned(instruction_data),
+            None,
         )
     }
 
@@ -485,11 +563,25 @@ impl<'ix_data> TransactionContext<'ix_data> {
     }
 
     /// Take ownership of the instruction trace
-    pub fn take_instruction_trace(&mut self) -> Vec<InstructionFrame<'_>> {
+    pub fn take_instruction_trace(&mut self) -> transaction::InstructionTrace<'_> {
         // The last frame is a placeholder for the next instruction to be executed, so it
         // is empty.
         self.instruction_trace.pop();
-        std::mem::take(&mut self.instruction_trace)
+        let instruction_accounts = self
+            .instruction_trace
+            .iter()
+            .map(|frame| frame.instruction_accounts.clone().into_boxed_slice())
+            .collect();
+        let instruction_data = self
+            .instruction_trace
+            .iter()
+            .map(|frame| frame.instruction_data.clone())
+            .collect();
+        (
+            std::mem::take(&mut self.instruction_trace),
+            instruction_accounts,
+            instruction_data,
+        )
     }
 }
 
@@ -1114,6 +1206,7 @@ mod tests {
                 Rent::default(),
                 /* max_instruction_stack_depth */ 2,
                 /* max_instruction_trace_length */ 2,
+                /* number_of_top_level_instructions */ 1,
             )
         };
 
@@ -1155,6 +1248,7 @@ mod tests {
             Rent::default(),
             20,
             20,
+            1,
         );
 
         transaction_context
