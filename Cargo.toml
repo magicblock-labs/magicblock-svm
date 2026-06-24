@@ -3,49 +3,43 @@ members = ["program-runtime", "solana-account", "svm", "transaction-context"]
 resolver = "2"
 
 [workspace.package]
-version = "3.1.12"
 authors = ["Anza Maintainers <maintainers@anza.xyz>"]
-repository = "https://github.com/anza-xyz/agave"
+edition = "2021"
 homepage = "https://anza.xyz/"
 license = "Apache-2.0"
-edition = "2021"
+repository = "https://github.com/anza-xyz/agave"
+version = "4.0.0"
 
 [workspace.dependencies]
-agave-logger = { version = "3.1", features = ["agave-unstable-api"] }
-agave-syscalls = "3.1"
-ahash = "0.8.11"
+agave-logger = { version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-syscalls = { version = "=4.0.0", default-features = false, features = ["agave-unstable-api"] }
+ahash = "0.8.12"
 assert_matches = "1.5.0"
 base64 = "0.22.1"
 bincode = "1.3.3"
+cfg-if = "1.0.4"
 ed25519-dalek = "=1.0.1"
+env_logger = "0.11.9"
 itertools = "0.12.1"
-libsecp256k1 = { version = "0.6.0", default-features = false, features = [
-  "std",
-  "static-context",
-] }
-log = "0.4.28"
+libsecp256k1 = { version = "0.6.0", default-features = false, features = ["static-context", "std"] }
+log = "0.4.29"
 openssl = "0.10"
 percentage = "0.1.0"
-qualifier_attr = "0.2.2"
+qualifier_attr = { version = "0.2.2", default-features = false }
 rand = "0.8.5"
 rand0-7 = { package = "rand", version = "0.7" }
 serde = { version = "1.0.228", features = ["rc"] }
 serde_bytes = { version = "0.11" }
 shuttle = "0.7.1"
-spl-generic-token = "2.0"
-spl-token-interface = "2.0"
-static_assertions = "1.1.0"
-test-case = "3.3"
-thiserror = "2.0"
 solana-account = { path = "solana-account", version = "3.4.0" }
 solana-account-info = "3.1.1"
-solana-bpf-loader-program = "3.1"
-solana-clock = "3.0.0"
-solana-compute-budget = { version = "3.1", features = ["agave-unstable-api"] }
-solana-compute-budget-interface = "3.0"
-solana-compute-budget-program = { version = "3.1", features = [
-  "agave-unstable-api",
+solana-bpf-loader-program = { version = "=4.0.0", default-features = false, features = [
+    "agave-unstable-api"
 ] }
+solana-clock = "3.0.0"
+solana-compute-budget = { version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-compute-budget-interface = "3.0"
+solana-compute-budget-program = { version = "=4.0.0", features = ["agave-unstable-api"] }
 solana-ed25519-program = "3.0"
 solana-epoch-rewards = "3.0.1"
 solana-epoch-schedule = "3.0"
@@ -53,60 +47,66 @@ solana-fee-calculator = "3.0"
 solana-fee-structure = "3.0"
 solana-frozen-abi = "3.0"
 solana-frozen-abi-macro = "3.0"
-solana-hash = "3.1"
-solana-instruction = "3.0"
+solana-hash = "~4.2.0"
+solana-instruction = ">=3.2.0,<3.4.0"
 solana-instruction-error = "2.2"
 solana-instructions-sysvar = "3.0"
 solana-keypair = "3.0"
 solana-last-restart-slot = "3.0.0"
 solana-loader-v3-interface = "6.1.0"
 solana-loader-v4-interface = "3.1"
-solana-loader-v4-program = { version = "3.1", features = [
-  "agave-unstable-api",
+solana-loader-v4-program = { version = "=4.0.0", default-features = false, features = [
+    "agave-unstable-api"
 ] }
 solana-message = "3.0"
 solana-native-token = "3.0"
 solana-nonce = "3.0"
 solana-nonce-account = "3.0"
 solana-precompile-error = "3.0"
-solana-program-binaries = { version = "3.1", features = ["agave-unstable-api"] }
+solana-program-binaries = { version = "=4.0.0", features = ["agave-unstable-api"] }
 solana-program-entrypoint = "3.1"
 solana-program-pack = "3.1"
 solana-program-runtime = { path = "program-runtime" }
-solana-pubkey = "3.0"
+solana-pubkey = { version = "~4.1.0", default-features = false }
 solana-rent = "3.0"
-solana-sbpf = "0.13.1"
+solana-sbpf = { version = "=0.14.4", default-features = false }
 solana-sdk-ids = "3.0"
 solana-secp256k1-program = { version = "3.0", features = ["bincode"] }
 solana-secp256r1-program = { version = "3.0", features = ["openssl-vendored"] }
-solana-signature = "3.1.0"
+solana-signature = { version = "~3.3.0", default-features = false }
 solana-signer = "3.0"
 solana-slot-hashes = "3.0.1"
 solana-stable-layout = "3.0.1"
 solana-stake-interface = "2.0.2"
-solana-svm-callback = "3.1"
-solana-svm-feature-set = "3.1"
-solana-svm-log-collector = "3.1"
-solana-svm-measure = "3.1"
-solana-svm-timings = "3.1"
-solana-svm-transaction = "3.1"
-solana-svm-type-overrides = "3.1"
-solana-system-interface = "2.0"
-solana-system-program = { version = "3.1", features = ["agave-unstable-api"] }
+solana-svm-callback = { version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-feature-set = { version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-log-collector = { version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-measure = { version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-timings = { version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-transaction = { version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-type-overrides = { version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-system-interface = { version = ">=3.0.0,<3.2.0", features = ["alloc", "bincode", "serde"] }
+solana-system-program = { version = "=4.0.0", features = ["agave-unstable-api"] }
 solana-system-transaction = "3.0"
 solana-sysvar = "3.0"
 solana-sysvar-id = "3.0"
 solana-transaction = "3.0"
 solana-transaction-context = { path = "transaction-context" }
 solana-transaction-error = "3.0"
+spl-generic-token = "2.0"
+spl-token-interface = "2.0"
+static_assertions = "1.1.0"
+test-case = "3.3"
+thiserror = "2.0"
 
 [workspace.lints.rust.unexpected_cfgs]
+check-cfg = [
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+    'cfg(target_arch, values("sbf"))',
+    'cfg(target_os, values("solana"))'
+]
 level = "warn"
 priority = 0
-check-cfg = [
-  'cfg(target_os, values("solana"))',
-  'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
 
 [patch.crates-io]
 solana-account = { path = "solana-account" }

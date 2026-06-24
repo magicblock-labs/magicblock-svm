@@ -680,7 +680,7 @@ mod tests {
         solana_sdk_ids::bpf_loader,
         solana_system_interface::MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION,
         solana_transaction_context::{
-            InstructionAccount, TransactionContext, MAX_ACCOUNTS_PER_TRANSACTION,
+            InstructionAccount, MAX_ACCOUNTS_PER_TRANSACTION, TransactionContext,
         },
         std::{
             borrow::Cow,
@@ -1542,19 +1542,23 @@ mod tests {
             .unwrap_err();
 
         // Writing to shared writable account makes it unique (CoW logic)
-        assert!(transaction_context
-            .accounts()
-            .try_borrow_mut(1)
-            .unwrap()
-            .is_shared());
+        assert!(
+            transaction_context
+                .accounts()
+                .try_borrow_mut(1)
+                .unwrap()
+                .is_shared()
+        );
         memory_mapping
             .store::<u32>(0, account_start_offsets[1])
             .unwrap();
-        assert!(!transaction_context
-            .accounts()
-            .try_borrow_mut(1)
-            .unwrap()
-            .is_shared());
+        assert!(
+            !transaction_context
+                .accounts()
+                .try_borrow_mut(1)
+                .unwrap()
+                .is_shared()
+        );
         assert_eq!(
             transaction_context
                 .accounts()

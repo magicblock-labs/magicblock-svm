@@ -1,12 +1,13 @@
 use {
-    solana_account::{state_traits::StateMut, AccountSharedData, ReadableAccount},
+    solana_account::{AccountSharedData, ReadableAccount, state_traits::StateMut},
     solana_clock::Slot,
     solana_instruction::error::InstructionError,
     solana_loader_v3_interface::state::UpgradeableLoaderState,
     solana_loader_v4_interface::state::{LoaderV4State, LoaderV4Status},
     solana_program_runtime::loaded_programs::{
-        LoadProgramMetrics, ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType,
-        ProgramRuntimeEnvironment, ProgramRuntimeEnvironments, DELAY_VISIBILITY_SLOT_OFFSET,
+        DELAY_VISIBILITY_SLOT_OFFSET, LoadProgramMetrics, ProgramCacheEntry,
+        ProgramCacheEntryOwner, ProgramCacheEntryType, ProgramRuntimeEnvironment,
+        ProgramRuntimeEnvironments,
     },
     solana_pubkey::Pubkey,
     solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4},
@@ -84,22 +85,18 @@ pub(crate) fn load_program_accounts<CB: TransactionProcessingCallback>(
         if let Ok(UpgradeableLoaderState::Program {
             programdata_address,
         }) = program_account.state()
-        {
-            if let Some((programdata_account, _slot)) =
+            && let Some((programdata_account, _slot)) =
                 callbacks.get_account_shared_data(&programdata_address)
-            {
-                if let Ok(UpgradeableLoaderState::ProgramData {
-                    slot,
-                    upgrade_authority_address: _,
-                }) = programdata_account.state()
-                {
-                    return Some(ProgramAccountLoadResult::ProgramOfLoaderV3(
-                        program_account,
-                        programdata_account,
-                        slot,
-                    ));
-                }
-            }
+            && let Ok(UpgradeableLoaderState::ProgramData {
+                slot,
+                upgrade_authority_address: _,
+            }) = programdata_account.state()
+        {
+            return Some(ProgramAccountLoadResult::ProgramOfLoaderV3(
+                program_account,
+                programdata_account,
+                slot,
+            ));
         }
         return Some(ProgramAccountLoadResult::InvalidAccountData(
             ProgramCacheEntryOwner::LoaderV3,

@@ -7,13 +7,15 @@ authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
 license = { workspace = true }
-edition = { workspace = true }
+edition = "2024"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [features]
+default = ["metrics"]
 agave-unstable-api = []
+dummy-for-ci-check = ["metrics"]
 dev-context-only-utils = [
   "dep:qualifier_attr",
   "solana-program-runtime/dev-context-only-utils",
@@ -23,13 +25,18 @@ frozen-abi = [
   "dep:solana-frozen-abi-macro",
   "solana-program-runtime/frozen-abi",
 ]
+metrics = [
+  "solana-bpf-loader-program/metrics",
+  "solana-loader-v4-program/metrics",
+  "solana-program-runtime/metrics",
+]
 shuttle-test = [
   "solana-bpf-loader-program/shuttle-test",
   "solana-loader-v4-program/shuttle-test",
   "solana-program-runtime/shuttle-test",
   "solana-svm-type-overrides/shuttle-test",
 ]
-svm-internal = []
+svm-internal = ["dep:qualifier_attr"]
 
 [dependencies]
 ahash = { workspace = true }
@@ -57,10 +64,7 @@ solana-nonce = { workspace = true }
 solana-nonce-account = { workspace = true }
 solana-program-entrypoint = { workspace = true }
 solana-program-pack = { workspace = true }
-solana-program-runtime = { workspace = true, features = [
-  "agave-unstable-api",
-  "metrics",
-] }
+solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-rent = { workspace = true }
 solana-sdk-ids = { workspace = true }
@@ -69,13 +73,11 @@ solana-svm-feature-set = { workspace = true }
 solana-svm-log-collector = { workspace = true }
 solana-svm-measure = { workspace = true }
 solana-svm-timings = { workspace = true }
-solana-svm-transaction = { workspace = true, features = ["agave-unstable-api"] }
+solana-svm-transaction = { workspace = true }
 solana-svm-type-overrides = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-sysvar-id = { workspace = true }
-solana-transaction-context = { workspace = true, features = [
-  "agave-unstable-api",
-] }
+solana-transaction-context = { workspace = true }
 solana-transaction-error = { workspace = true }
 spl-generic-token = { workspace = true }
 thiserror = { workspace = true }
@@ -86,6 +88,7 @@ agave-syscalls = { workspace = true }
 assert_matches = { workspace = true }
 bincode = { workspace = true }
 ed25519-dalek = { workspace = true }
+env_logger = { workspace = true }
 libsecp256k1 = { workspace = true }
 openssl = { workspace = true }
 rand0-7 = { workspace = true }
@@ -103,7 +106,6 @@ solana-native-token = { workspace = true }
 solana-precompile-error = { workspace = true }
 solana-program-binaries = { workspace = true }
 solana-program-runtime = { workspace = true, features = [
-  "agave-unstable-api",
   "dev-context-only-utils",
 ] }
 solana-pubkey = { workspace = true, features = ["rand"] }
@@ -124,7 +126,6 @@ solana-system-transaction = { workspace = true }
 solana-sysvar = { workspace = true }
 solana-transaction = { workspace = true, features = ["dev-context-only-utils"] }
 solana-transaction-context = { workspace = true, features = [
-  "agave-unstable-api",
   "dev-context-only-utils",
 ] }
 spl-token-interface = { workspace = true }
