@@ -25,11 +25,19 @@ impl TransactionAccountStateInfo {
                         .accounts()
                         .try_borrow(i as IndexOfAccount)
                     {
-                        Some(get_account_rent_state(
-                            rent,
-                            account.lamports(),
-                            account.data().len(),
-                        ))
+                        // Ephemeral accounts pay the reduced ephemeral rent
+                        // charged by the magic program at creation, not the
+                        // standard Rent, so the transaction rent check always
+                        // treats them as rent-exempt regardless of balance.
+                        if account.ephemeral() {
+                            Some(RentState::RentExempt)
+                        } else {
+                            Some(get_account_rent_state(
+                                rent,
+                                account.lamports(),
+                                account.data().len(),
+                            ))
+                        }
                     } else {
                         None
                     };
@@ -132,6 +140,54 @@ mod test {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn test_new_ephemeral_is_rent_exempt() {
+        let rent = Rent::default();
+        let key1 = Keypair::new();
+        let key2 = Keypair::new();
+        let key3 = Keypair::new();
+        let key4 = Keypair::new();
+
+        let message = Message {
+            account_keys: vec![key2.pubkey(), key1.pubkey(), key4.pubkey()],
+            header: MessageHeader::default(),
+            instructions: vec![
+                CompiledInstruction {
+                    program_id_index: 1,
+                    accounts: vec![0],
+                    data: vec![],
+                },
+                CompiledInstruction {
+                    program_id_index: 1,
+                    accounts: vec![2],
+                    data: vec![],
+                },
+            ],
+            recent_blockhash: Hash::default(),
+        };
+
+        let sanitized_message =
+            SanitizedMessage::Legacy(LegacyMessage::new(message, &HashSet::new()));
+
+        // Writable account at index 0 is ephemeral and holds far less than the
+        // standard rent-exempt minimum for its data length.
+        let mut ephemeral = AccountSharedData::new(1, 200, &key1.pubkey());
+        ephemeral.set_ephemeral(true);
+        assert!(!rent.is_exempt(ephemeral.lamports(), ephemeral.data().len()));
+
+        let transaction_accounts = vec![
+            (key1.pubkey(), ephemeral),
+            (key2.pubkey(), AccountSharedData::default()),
+            (key3.pubkey(), AccountSharedData::default()),
+        ];
+
+        let context = TransactionContext::new(transaction_accounts, rent.clone(), 20, 20);
+        let result = TransactionAccountStateInfo::new(&context, &sanitized_message, &rent);
+        // Despite being below the standard rent floor, the ephemeral account is
+        // reported as rent-exempt so the transaction rent check passes.
+        assert_eq!(result[0].rent_state, Some(RentState::RentExempt));
     }
 
     #[test]
