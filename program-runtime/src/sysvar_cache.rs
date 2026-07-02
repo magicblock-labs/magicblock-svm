@@ -20,11 +20,6 @@ use {
 };
 
 /// Address of the MagicBlock-specific `HighPrecisionClock` sysvar.
-///
-/// The typed representation lives in `magicblock-magic-program-api` (so both the
-/// validator and on-chain programs can share it); the cache only needs to route
-/// this ID to its raw buffer. Kept in sync with the const of the same name
-/// there.
 pub const HIGH_PRECISION_CLOCK_ID: Pubkey =
     Pubkey::from_str_const("SysvarHighPrecisionC1ock1111111111111111111");
 
