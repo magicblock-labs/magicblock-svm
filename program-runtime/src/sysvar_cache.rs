@@ -23,9 +23,9 @@ use {
 pub const HIGH_PRECISION_CLOCK_ID: Pubkey =
     Pubkey::from_str_const("SysvarHighPrecisionC1ock1111111111111111111");
 
-/// Serialized size of the `HighPrecisionClock` sysvar (`i64` timestamp + `u32`
-/// nanos).
-const HIGH_PRECISION_CLOCK_SIZE: usize = 12;
+/// Serialized size of the `HighPrecisionClock` sysvar: a single `i64`
+/// millisecond Unix timestamp.
+const HIGH_PRECISION_CLOCK_SIZE: usize = 8;
 
 #[cfg(feature = "frozen-abi")]
 impl ::solana_frozen_abi::abi_example::AbiExample for SysvarCache {
@@ -417,10 +417,9 @@ mod tests {
     // magicblock-magic-program-api; here the cache only handles raw bytes.
     #[test]
     fn test_high_precision_clock_roundtrips_through_cache() {
-        // 8-byte LE unix_timestamp (i64) + 4-byte LE nanos (u32).
+        // 8-byte LE millisecond Unix timestamp (i64).
         let mut bytes = Vec::with_capacity(HIGH_PRECISION_CLOCK_SIZE);
-        bytes.extend_from_slice(&1_700_000_000_i64.to_le_bytes());
-        bytes.extend_from_slice(&123_456_789_u32.to_le_bytes());
+        bytes.extend_from_slice(&1_700_000_000_123_i64.to_le_bytes());
 
         // fill_missing_entries seeds the buffer from raw account data.
         let mut cache = SysvarCache::default();
