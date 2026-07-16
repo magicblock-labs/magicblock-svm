@@ -213,6 +213,10 @@ mod tests {
         std::collections::{HashMap, HashSet},
     };
 
+    const ACCEPT_SCHEDULE_COMMITS_DISCRIMINANT: u32 = PRIVILEGED_OUTBOX_INTENT_DISCRIMINANTS[0];
+    const SCHEDULED_COMMIT_SENT_DISCRIMINANT: u32 = PRIVILEGED_OUTBOX_INTENT_DISCRIMINANTS[1];
+    const UNLISTED_OUTBOX_INTENT_DISCRIMINANT: u32 = 2;
+
     fn privileged_account() -> AccountSharedData {
         let mut account = AccountSharedData::default();
         account.set_privileged(true);
@@ -486,6 +490,93 @@ mod tests {
         let writable = Pubkey::new_unique();
         let mut tx = executed_transaction(payer, writable);
         let message = message(MAGIC_PROGRAM_ID, 1u32.to_le_bytes().to_vec());
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(
+            tx.execution_details.status,
+            Err(TransactionError::InvalidWritableAccount)
+        );
+    }
+
+    #[test]
+    fn privileged_payer_allows_outbox_intent_control_instruction() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message(
+            OUTBOX_INTENT_PROGRAM_ID,
+            ACCEPT_SCHEDULE_COMMITS_DISCRIMINANT.to_le_bytes().to_vec(),
+        );
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(tx.execution_details.status, Ok(()));
+    }
+
+    #[test]
+    fn privileged_payer_allows_outbox_intent_second_control_instruction() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message(
+            OUTBOX_INTENT_PROGRAM_ID,
+            SCHEDULED_COMMIT_SENT_DISCRIMINANT.to_le_bytes().to_vec(),
+        );
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(tx.execution_details.status, Ok(()));
+    }
+
+    #[test]
+    fn privileged_payer_rejects_unlisted_outbox_intent_instruction() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message(
+            OUTBOX_INTENT_PROGRAM_ID,
+            UNLISTED_OUTBOX_INTENT_DISCRIMINANT.to_le_bytes().to_vec(),
+        );
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(
+            tx.execution_details.status,
+            Err(TransactionError::InvalidWritableAccount)
+        );
+    }
+
+    #[test]
+    fn privileged_payer_allows_mixed_magic_and_outbox_intent_instructions() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message_with_programs(vec![
+            (MAGIC_PROGRAM_ID, 8u32.to_le_bytes().to_vec()),
+            (
+                OUTBOX_INTENT_PROGRAM_ID,
+                ACCEPT_SCHEDULE_COMMITS_DISCRIMINANT.to_le_bytes().to_vec(),
+            ),
+        ]);
+
+        tx.validate_accounts_access(&message);
+
+        assert_eq!(tx.execution_details.status, Ok(()));
+    }
+
+    #[test]
+    fn privileged_payer_rejects_mixed_magic_and_unlisted_outbox_intent_instruction() {
+        let payer = Pubkey::new_unique();
+        let writable = Pubkey::new_unique();
+        let mut tx = executed_transaction(payer, writable);
+        let message = message_with_programs(vec![
+            (MAGIC_PROGRAM_ID, 8u32.to_le_bytes().to_vec()),
+            (
+                OUTBOX_INTENT_PROGRAM_ID,
+                UNLISTED_OUTBOX_INTENT_DISCRIMINANT.to_le_bytes().to_vec(),
+            ),
+        ]);
 
         tx.validate_accounts_access(&message);
 
