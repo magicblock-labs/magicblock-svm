@@ -10,7 +10,11 @@ const MAGIC_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("Magic11111111111111111111111111111111111111");
 const POST_DELEGATION_ACTION_EXECUTOR_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("PostAct111111111111111111111111111111111111");
+pub const OUTBOX_INTENT_PROGRAM_ID: Pubkey =
+    Pubkey::from_str_const("outboxintent1111111111111111111111111111111");
+
 const PRIVILEGED_MAGIC_DISCRIMINANTS: [u32; 13] = [0, 3, 4, 8, 9, 16, 17, 18, 19, 20, 21, 22, 24];
+const PRIVILEGED_OUTBOX_INTENT_DISCRIMINANTS: [u32; 2] = [0, 1];
 const CLONE_ACCOUNT_DISCRIMINANT: u32 = 16;
 const CLONE_ACCOUNT_CONTINUE_DISCRIMINANT: u32 = 18;
 const CLONED_ACCOUNT_INSTRUCTION_ACCOUNT_INDEX: usize = 1;
@@ -121,13 +125,21 @@ fn privileged_access(message: &impl SVMMessage) -> PrivilegedAccess {
         if *program == loader_v4::ID {
             continue;
         }
-        if *program != MAGIC_PROGRAM_ID {
-            return PrivilegedAccess::None;
-        }
 
-        let discriminant = instruction_discriminant(&instruction).unwrap_or(u32::MAX);
-        if !PRIVILEGED_MAGIC_DISCRIMINANTS.contains(&discriminant) {
-            return PrivilegedAccess::None;
+        match *program {
+            MAGIC_PROGRAM_ID => {
+                let discriminant = instruction_discriminant(&instruction).unwrap_or(u32::MAX);
+                if !PRIVILEGED_MAGIC_DISCRIMINANTS.contains(&discriminant) {
+                    return PrivilegedAccess::None;
+                }
+            }
+            OUTBOX_INTENT_PROGRAM_ID => {
+                let discriminant = instruction_discriminant(&instruction).unwrap_or(u32::MAX);
+                if !PRIVILEGED_OUTBOX_INTENT_DISCRIMINANTS.contains(&discriminant) {
+                    return PrivilegedAccess::None;
+                }
+            }
+            _ => return PrivilegedAccess::None,
         }
     }
     PrivilegedAccess::Full
