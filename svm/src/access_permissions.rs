@@ -57,7 +57,11 @@ impl ExecutedTransaction {
 
         let mut offender = None;
         let is_mutable = |acc: &AccountSharedData| {
-            acc.delegated() || acc.ephemeral() || acc.confined() || acc.undelegating()
+            if acc.confined() {
+                !acc.lamports_changed()
+            } else {
+                acc.delegated() || acc.ephemeral() || acc.undelegating()
+            }
         };
         // For non-privileged payers, validate the rest of the accounts.
         // Skip the fee payer (index 0), as its writability is validated elsewhere.
