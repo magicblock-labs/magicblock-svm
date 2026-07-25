@@ -68,6 +68,7 @@ impl RollbackAccounts {
         mut fee_payer_account: AccountSharedData,
         fee_payer_loaded_rent_epoch: Epoch,
     ) -> Self {
+        fee_payer_account.ensure_owned();
         if let Some(nonce) = nonce {
             if &fee_payer_address == nonce.address() {
                 // `nonce` contains an AccountSharedData which has already been advanced to the current DurableNonce
@@ -80,8 +81,10 @@ impl RollbackAccounts {
                     nonce: (fee_payer_address, fee_payer_account),
                 }
             } else {
+                let mut nonce_account = nonce.account;
+                nonce_account.ensure_owned();
                 RollbackAccounts::SeparateNonceAndFeePayer {
-                    nonce: (nonce.address, nonce.account),
+                    nonce: (nonce.address, nonce_account),
                     fee_payer: (fee_payer_address, fee_payer_account),
                 }
             }
