@@ -19,6 +19,14 @@ use {
     solana_transaction_context::{IndexOfAccount, InstructionContext},
 };
 
+/// Address of the MagicBlock-specific `HighPrecisionClock` sysvar.
+pub const HIGH_PRECISION_CLOCK_ID: Pubkey =
+    Pubkey::from_str_const("SysvarHighPrecisionC1ock1111111111111111111");
+
+/// Serialized size of the `HighPrecisionClock` sysvar: a single `i64`
+/// millisecond Unix timestamp.
+const HIGH_PRECISION_CLOCK_SIZE: usize = 8;
+
 #[cfg(feature = "frozen-abi")]
 impl ::solana_frozen_abi::abi_example::AbiExample for SysvarCache {
     fn example() -> Self {
@@ -37,6 +45,7 @@ pub struct SysvarCache {
     slot_hashes: Option<Vec<u8>>,
     stake_history: Option<Vec<u8>>,
     last_restart_slot: Option<Vec<u8>>,
+    high_precision_clock: Option<Vec<u8>>,
 
     // object representations of large sysvars for convenience
     // these are used by the stake and vote builtin programs
@@ -81,6 +90,9 @@ impl SysvarCache {
             sysvar::last_restart_slot::ID => {
                 self.last_restart_slot = Some(data);
             }
+            HIGH_PRECISION_CLOCK_ID => {
+                self.high_precision_clock = Some(data);
+            }
             RECENT_BLOCKHASHES_ID => {
                 let recent_blockhashes: RecentBlockhashes = bincode::deserialize(&data)
                     .expect("Failed to deserialize RecentBlockhashes sysvar.");
@@ -121,6 +133,8 @@ impl SysvarCache {
             &self.stake_history
         } else if LastRestartSlot::check_id(sysvar_id) {
             &self.last_restart_slot
+        } else if sysvar_id == &HIGH_PRECISION_CLOCK_ID {
+            &self.high_precision_clock
         } else {
             &None
         }
@@ -249,6 +263,14 @@ impl SysvarCache {
             get_account_data(&LastRestartSlot::id(), &mut |data: &[u8]| {
                 if bincode::deserialize::<LastRestartSlot>(data).is_ok() {
                     self.last_restart_slot = Some(data.to_vec());
+                }
+            });
+        }
+
+        if self.high_precision_clock.is_none() {
+            get_account_data(&HIGH_PRECISION_CLOCK_ID, &mut |data: &[u8]| {
+                if data.len() >= HIGH_PRECISION_CLOCK_SIZE {
+                    self.high_precision_clock = Some(data.to_vec());
                 }
             });
         }
@@ -386,5 +408,44 @@ mod tests {
         let out_buf = sysvar_cache.sysvar_id_to_buffer(&id).clone().unwrap();
 
         assert_eq!(out_buf, in_buf);
+    }
+
+    // The MagicBlock-specific HighPrecisionClock sysvar must be reachable
+    // through the raw syscall buffer (`sysvar_id_to_buffer`, used by
+    // `SyscallGetSysvar`) and be seeded from account data
+    // (`fill_missing_entries`). The typed representation lives in
+    // magicblock-magic-program-api; here the cache only handles raw bytes.
+    #[test]
+    fn test_high_precision_clock_roundtrips_through_cache() {
+        // 8-byte LE millisecond Unix timestamp (i64).
+        let mut bytes = Vec::with_capacity(HIGH_PRECISION_CLOCK_SIZE);
+        bytes.extend_from_slice(&1_700_000_000_123_i64.to_le_bytes());
+
+        // fill_missing_entries seeds the buffer from raw account data.
+        let mut cache = SysvarCache::default();
+        cache.fill_missing_entries(|id, callback| {
+            if *id == HIGH_PRECISION_CLOCK_ID {
+                callback(&bytes)
+            }
+        });
+
+        let buf = cache
+            .sysvar_id_to_buffer(&HIGH_PRECISION_CLOCK_ID)
+            .clone()
+            .expect("high precision clock missing from cache buffer");
+        assert_eq!(buf, bytes);
+
+        // Too-short account data must be rejected by the length check.
+        let mut short = SysvarCache::default();
+        short.fill_missing_entries(|id, callback| {
+            if *id == HIGH_PRECISION_CLOCK_ID {
+                callback(&[0u8; HIGH_PRECISION_CLOCK_SIZE - 1])
+            }
+        });
+        assert!(
+            short
+                .sysvar_id_to_buffer(&HIGH_PRECISION_CLOCK_ID)
+                .is_none()
+        );
     }
 }
