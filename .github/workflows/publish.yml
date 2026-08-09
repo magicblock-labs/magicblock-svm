@@ -1,0 +1,68 @@
+name: Publish crates
+
+# Publishes solana-account, transaction-context, program-runtime and
+# svm to crates.io as magicblock-account, magicblock-transaction-context,
+# magicblock-program-runtime and magicblock-svm. The crates keep their
+# solana-* package name in this repo (other crates depend on it by
+# that name via path/git deps) -- only the published registry name
+# changes. See scripts/publish/publish.sh for how.
+#
+# Runs when a GitHub Release is published (which is always tied to a
+# tag) -- not on every tag push, so pushing a tag alone doesn't publish.
+#
+# Also runs (forced into dry-run) whenever the publish script or this
+# workflow itself changes, so a broken script/workflow shows up as a
+# failing check instead of only being discovered on the next release.
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - "scripts/publish/**"
+      - ".github/workflows/publish.yml"
+  pull_request:
+    paths:
+      - "scripts/publish/**"
+      - ".github/workflows/publish.yml"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run cargo publish --dry-run instead of publishing for real"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish magicblock-* crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          # Real publish only on a published release. workflow_dispatch
+          # respects its own dry_run input. Everything else (push/pull_request,
+          # only reachable via the paths filter above) is always a dry run.
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            export DRY_RUN=false
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            export DRY_RUN="$DISPATCH_DRY_RUN"
+          else
+            export DRY_RUN=true
+          fi
+          ./scripts/publish/publish.sh
