@@ -1,5 +1,5 @@
 [workspace]
-members = ["program-runtime", "solana-account", "svm", "transaction-context"]
+members = ["loader-v4-program", "program-runtime", "solana-account", "svm", "transaction-context"]
 resolver = "2"
 
 [workspace.package]
@@ -43,6 +43,7 @@ serde_bytes = { version = "0.11" }
 shuttle = "0.7.1"
 solana-account = { path = "solana-account", version = ">=4.3.1,<4.4.0" }
 solana-account-info = "3.1.1"
+solana-bincode = "3.1.0"
 solana-bpf-loader-program = { version = "=4.2.2", default-features = false, features = [
     "agave-unstable-api"
 ] }
@@ -65,10 +66,12 @@ solana-keypair = "3.1.2"
 solana-last-restart-slot = ">=3.0.1,<3.2.0"
 solana-loader-v3-interface = "7.0.0"
 solana-loader-v4-interface = "3.1.0"
+solana-loader-v4-program = { path = "loader-v4-program", features = ["agave-unstable-api"] }
 solana-message = ">=4.2.3,<4.5.0"
 solana-native-token = "3.0.0"
 solana-nonce = ">=3.2.0,<3.3.0"
 solana-nonce-account = ">=4.1.0,<4.2.0"
+solana-packet = ">=4.1.0,<4.3.0"
 solana-precompile-error = "3.0.0"
 solana-program-binaries = { version = "=4.2.2", features = ["agave-unstable-api"] }
 solana-program-entrypoint = "3.1.1"
