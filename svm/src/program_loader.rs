@@ -2,7 +2,6 @@ use std::sync::atomic::Ordering;
 
 use solana_account::{AccountSharedData, ReadableAccount, state_traits::StateMut};
 use solana_clock::Slot;
-use solana_instruction::error::InstructionError;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_loader_v4_interface::state::{LoaderV4State, LoaderV4Status};
 #[cfg(feature = "metrics")]
@@ -11,6 +10,7 @@ use solana_program_runtime::{
     loaded_programs::{
         ProgramCacheForTxBatch, ProgramCacheMatchCriteria, ProgramRuntimeEnvironment, ProgramToLoad,
     },
+    loader_v4::get_state as loader_v4_get_state,
     program_cache_entry::{
         DELAY_VISIBILITY_SLOT_OFFSET, ProgramCacheEntry, ProgramCacheEntryOwner,
         ProgramCacheEntryType,
@@ -287,23 +287,11 @@ pub fn filter_executable_program_accounts<'a, CB: TransactionProcessingCallback>
     result
 }
 
-// Plucked from the now-removed Loader V4 program library.
-fn loader_v4_get_state(data: &[u8]) -> Result<&LoaderV4State, InstructionError> {
-    unsafe {
-        let data = data
-            .get(0..LoaderV4State::program_data_offset())
-            .ok_or(InstructionError::AccountDataTooSmall)?
-            .try_into()
-            .unwrap();
-        Ok(std::mem::transmute::<
-            &[u8; LoaderV4State::program_data_offset()],
-            &LoaderV4State,
-        >(data))
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use solana_instruction::error::InstructionError;
+    use solana_program_runtime::loader_v4::set_state;
+    use std::mem::transmute;
     use std::{
         cell::RefCell,
         collections::HashMap,
@@ -321,6 +309,7 @@ mod tests {
             BlockRelation, ForkGraph, ProgramRuntimeEnvironment,
             get_mock_program_runtime_environment,
         },
+        loader_v4::get_state as loader_v4_get_state,
         solana_sbpf::program::BuiltinProgram,
     };
     use solana_sdk_ids::{bpf_loader, bpf_loader_upgradeable, native_loader};
@@ -769,6 +758,7 @@ mod tests {
         assert_eq!(result.err(), Some(TransactionError::ProgramAccountNotFound));
     }
 
+    /// Deployment slots survive the V3 layout and aligned or unaligned V4 headers.
     #[test]
     fn test_program_deployment_slot_success() {
         let mock_bank = MockBankCallback::default();
@@ -809,6 +799,42 @@ mod tests {
             ProgramCacheEntryOwner::LoaderV3,
         );
         assert_eq!(result.unwrap(), 77);
+
+        for status in [
+            LoaderV4Status::Retracted,
+            LoaderV4Status::Deployed,
+            LoaderV4Status::Finalized,
+        ] {
+            let state = LoaderV4State {
+                slot: 77,
+                authority_address_or_next_version: key1,
+                status,
+            };
+            // SAFETY: The asserted 48-byte layout has no padding, and every
+            // field is initialized. These are the bytes used by existing ledgers.
+            let native_header = unsafe { transmute::<LoaderV4State, [u8; 48]>(state) };
+            for offset in [0, 1, 4] {
+                let mut bytes = vec![0xab; offset + LoaderV4State::program_data_offset() + 8];
+                set_state(&mut bytes[offset..], state).unwrap();
+                assert_eq!(&bytes[offset..offset + 48], &native_header);
+                assert_eq!(loader_v4_get_state(&bytes[offset..]).unwrap(), state);
+                assert!(bytes[..offset].iter().all(|byte| *byte == 0xab));
+                assert!(
+                    bytes[offset + LoaderV4State::program_data_offset()..]
+                        .iter()
+                        .all(|byte| *byte == 0xab)
+                );
+                bytes[offset + 40..offset + 48].copy_from_slice(&3u64.to_le_bytes());
+                assert_eq!(
+                    loader_v4_get_state(&bytes[offset..]),
+                    Err(InstructionError::InvalidAccountData)
+                );
+            }
+        }
+        assert_eq!(
+            loader_v4_get_state(&[0; 47]),
+            Err(InstructionError::AccountDataTooSmall)
+        );
     }
 
     #[test]

@@ -55,6 +55,7 @@ solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-last-restart-slot = { workspace = true }
 solana-loader-v3-interface = { workspace = true }
+solana-loader-v4-interface = { workspace = true }
 solana-message = { workspace = true, optional = true }
 solana-program-entrypoint = { workspace = true }
 solana-pubkey = { workspace = true }

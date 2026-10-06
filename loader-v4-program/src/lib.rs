@@ -13,6 +13,7 @@ use {
     solana_program_runtime::{
         deploy_program,
         invoke_context::InvokeContext,
+        loader_v4::set_state,
         program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType},
         vm::execute,
     },
@@ -25,42 +26,12 @@ use {
     solana_transaction_context::{
         instruction::InstructionContext, instruction_accounts::BorrowedInstructionAccount,
     },
-    std::{
-        cell::RefCell,
-        cmp::Ordering,
-        error::Error,
-        mem::{align_of, offset_of},
-        rc::Rc,
-    },
+    std::{cell::RefCell, cmp::Ordering, error::Error, rc::Rc},
 };
 
 pub const DEFAULT_COMPUTE_UNITS: u64 = 2_000;
 
-pub fn get_state(data: &[u8]) -> Result<&LoaderV4State, InstructionError> {
-    let header = data
-        .get(..LoaderV4State::program_data_offset())
-        .ok_or(InstructionError::AccountDataTooSmall)?;
-    let status = u64::from_ne_bytes(
-        header[offset_of!(LoaderV4State, status)..]
-            .try_into()
-            .unwrap(),
-    );
-    if !(header.as_ptr() as usize).is_multiple_of(align_of::<LoaderV4State>())
-        || status > LoaderV4Status::Finalized as u64
-    {
-        return Err(InstructionError::InvalidAccountData);
-    }
-    // SAFETY: The complete header is aligned and its enum discriminant is valid.
-    // Slot and Pubkey accept every bit pattern; the reference cannot outlive data.
-    Ok(unsafe { &*header.as_ptr().cast::<LoaderV4State>() })
-}
-
-fn get_state_mut(data: &mut [u8]) -> Result<&mut LoaderV4State, InstructionError> {
-    get_state(data)?;
-    // SAFETY: get_state validated the layout, alignment and discriminant, and
-    // the mutable slice gives this reference exclusive access to the header.
-    Ok(unsafe { &mut *data.as_mut_ptr().cast::<LoaderV4State>() })
-}
+pub use solana_program_runtime::loader_v4::get_state;
 
 fn check_program_account(
     log_collector: &Option<Rc<RefCell<LogCollector>>>,
@@ -89,7 +60,7 @@ fn check_program_account(
         ic_logger_msg!(log_collector, "Program is finalized");
         return Err(InstructionError::Immutable);
     }
-    Ok(*state)
+    Ok(state)
 }
 
 fn process_instruction_write(
@@ -262,10 +233,14 @@ fn process_instruction_set_program_length(
         )?;
         if is_initialization {
             program.set_executable(true)?;
-            let state = get_state_mut(program.get_data_mut()?)?;
-            state.slot = 0;
-            state.status = LoaderV4Status::Retracted;
-            state.authority_address_or_next_version = *authority_address;
+            set_state(
+                program.get_data_mut()?,
+                LoaderV4State {
+                    slot: 0,
+                    status: LoaderV4Status::Retracted,
+                    authority_address_or_next_version: *authority_address,
+                },
+            )?;
         }
     }
     Ok(())
@@ -277,7 +252,7 @@ fn process_instruction_deploy(invoke_context: &mut InvokeContext) -> Result<(), 
     let instruction_context = transaction_context.get_current_instruction_context()?;
     let mut program = instruction_context.try_borrow_instruction_account(0)?;
     let authority_address = instruction_context.get_key_of_instruction_account(1)?;
-    let state = check_program_account(
+    let mut state = check_program_account(
         &log_collector,
         &instruction_context,
         &program,
@@ -320,9 +295,9 @@ fn process_instruction_deploy(invoke_context: &mut InvokeContext) -> Result<(), 
             .disable_sbpf_v0_v1_v2_deployment,
     );
 
-    let state = get_state_mut(program.get_data_mut()?)?;
     state.slot = current_slot;
     state.status = LoaderV4Status::Deployed;
+    set_state(program.get_data_mut()?, state)?;
     Ok(())
 }
 
@@ -333,7 +308,7 @@ fn process_instruction_retract(invoke_context: &mut InvokeContext) -> Result<(),
     let mut program = instruction_context.try_borrow_instruction_account(0)?;
 
     let authority_address = instruction_context.get_key_of_instruction_account(1)?;
-    let state = check_program_account(
+    let mut state = check_program_account(
         &log_collector,
         &instruction_context,
         &program,
@@ -355,8 +330,8 @@ fn process_instruction_retract(invoke_context: &mut InvokeContext) -> Result<(),
         ic_logger_msg!(log_collector, "Program is not deployed");
         return Err(InstructionError::InvalidArgument);
     }
-    let state = get_state_mut(program.get_data_mut()?)?;
     state.status = LoaderV4Status::Retracted;
+    set_state(program.get_data_mut()?, state)?;
     invoke_context
         .program_cache_for_tx_batch
         .store_modified_entry(
@@ -379,7 +354,7 @@ fn process_instruction_transfer_authority(
     let mut program = instruction_context.try_borrow_instruction_account(0)?;
     let authority_address = instruction_context.get_key_of_instruction_account(1)?;
     let new_authority_address = instruction_context.get_key_of_instruction_account(2)?;
-    let state = check_program_account(
+    let mut state = check_program_account(
         &log_collector,
         &instruction_context,
         &program,
@@ -393,8 +368,8 @@ fn process_instruction_transfer_authority(
         ic_logger_msg!(log_collector, "No change");
         return Err(InstructionError::InvalidArgument);
     }
-    let state = get_state_mut(program.get_data_mut()?)?;
     state.authority_address_or_next_version = *new_authority_address;
+    set_state(program.get_data_mut()?, state)?;
     Ok(())
 }
 
@@ -406,7 +381,7 @@ fn process_instruction_finalize(
     let instruction_context = transaction_context.get_current_instruction_context()?;
     let program = instruction_context.try_borrow_instruction_account(0)?;
     let authority_address = instruction_context.get_key_of_instruction_account(1)?;
-    let state = check_program_account(
+    let mut state = check_program_account(
         &log_collector,
         &instruction_context,
         &program,
@@ -434,9 +409,9 @@ fn process_instruction_finalize(
     let address_of_next_version = *next_version.get_key();
     drop(next_version);
     let mut program = instruction_context.try_borrow_instruction_account(0)?;
-    let state = get_state_mut(program.get_data_mut()?)?;
     state.authority_address_or_next_version = address_of_next_version;
     state.status = LoaderV4Status::Finalized;
+    set_state(program.get_data_mut()?, state)?;
     Ok(())
 }
 
