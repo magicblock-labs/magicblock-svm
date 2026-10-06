@@ -1,8 +1,9 @@
-use {
-    crate::transaction_execution_result::TransactionLoadedAccountsStats,
-    solana_fee_structure::FeeDetails, solana_message::inner_instruction::InnerInstructionsList,
-    solana_transaction_context::TransactionReturnData, solana_transaction_error::TransactionResult,
-};
+use solana_fee_structure::FeeDetails;
+use solana_message::inner_instruction::InnerInstructionsList;
+use solana_transaction_context::transaction::TransactionReturnData;
+use solana_transaction_error::TransactionResult;
+
+use crate::transaction_execution_result::TransactionLoadedAccountsStats;
 
 pub type TransactionCommitResult = TransactionResult<CommittedTransaction>;
 
