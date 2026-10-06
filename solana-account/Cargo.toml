@@ -2,12 +2,12 @@
 name = "solana-account"
 description = "Solana Account type"
 documentation = "https://docs.rs/solana-account"
-version = "3.4.0"
+version = "4.3.1"
 authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
 license = { workspace = true }
-edition = { workspace = true }
+edition = "2021"
 
 
 [dependencies]
@@ -46,3 +46,6 @@ frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro"]
 targets = ["x86_64-unknown-linux-gnu"]
 all-features = true
 rustdoc-args = ["--cfg=docsrs"]
+
+[dev-dependencies]
+solana-pubkey = { workspace = true, features = ["rand"] }

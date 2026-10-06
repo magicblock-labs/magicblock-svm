@@ -1,44 +1,44 @@
 #![allow(unused)]
 
-#[allow(deprecated)]
-use solana_sysvar::recent_blockhashes::{Entry as BlockhashesEntry, RecentBlockhashes};
-use {
-    agave_syscalls::{
-        SyscallAbort, SyscallGetClockSysvar, SyscallGetEpochScheduleSysvar, SyscallGetRentSysvar,
-        SyscallGetSysvar, SyscallInvokeSignedRust, SyscallLog, SyscallMemcmp, SyscallMemcpy,
-        SyscallMemmove, SyscallMemset, SyscallPanic, SyscallSetReturnData,
-    },
-    solana_account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
-    solana_clock::{Clock, Slot, UnixTimestamp},
-    solana_epoch_schedule::EpochSchedule,
-    solana_fee_structure::{FeeDetails, FeeStructure},
-    solana_loader_v3_interface::{self as bpf_loader_upgradeable, state::UpgradeableLoaderState},
-    solana_program_runtime::{
-        execution_budget::{SVMTransactionExecutionBudget, SVMTransactionExecutionCost},
-        invoke_context::InvokeContext,
-        loaded_programs::{BlockRelation, ForkGraph, ProgramCacheEntry},
-        solana_sbpf::{
-            program::{BuiltinProgram, SBPFVersion},
-            vm::Config,
-        },
-    },
-    solana_pubkey::Pubkey,
-    solana_rent::Rent,
-    solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, compute_budget, loader_v4},
-    solana_svm::transaction_processor::TransactionBatchProcessor,
-    solana_svm_callback::{AccountState, InvokeContextCallback, TransactionProcessingCallback},
-    solana_svm_feature_set::SVMFeatureSet,
-    solana_svm_transaction::svm_message::SVMMessage,
-    solana_svm_type_overrides::sync::{Arc, RwLock},
-    solana_sysvar_id::SysvarId,
-    std::{
-        cmp::Ordering,
-        collections::HashMap,
-        fs::{self, File},
-        io::Read,
-        path::PathBuf,
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    env,
+    fs::{self, File},
+    io::Read,
+};
+
+use solana_account::{Account, AccountSharedData, ReadableAccount, WritableAccount};
+use solana_clock::{Clock, Slot, UnixTimestamp};
+use solana_epoch_schedule::EpochSchedule;
+use solana_fee_structure::{FeeDetails, FeeStructure};
+use solana_loader_v3_interface::{self as bpf_loader_upgradeable, state::UpgradeableLoaderState};
+use solana_program_runtime::{
+    execution_budget::{SVMTransactionExecutionBudget, SVMTransactionExecutionCost},
+    invoke_context::InvokeContext,
+    loaded_programs::{BlockRelation, ForkGraph, ProgramRuntimeEnvironment},
+    program_cache_entry::ProgramCacheEntry,
+    solana_sbpf::{
+        program::{BuiltinFunctionDefinition, BuiltinProgram, SBPFVersion},
+        vm::Config,
     },
 };
+use solana_pubkey::Pubkey;
+use solana_rent::Rent;
+use solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, compute_budget};
+use solana_svm::transaction_processor::TransactionBatchProcessor;
+use solana_svm_callback::{AccountState, InvokeContextCallback, TransactionProcessingCallback};
+use solana_svm_feature_set::SVMFeatureSet;
+use solana_svm_transaction::svm_message::SVMMessage;
+use solana_svm_type_overrides::sync::{Arc, RwLock};
+use solana_syscalls::{
+    SyscallAbort, SyscallGetClockSysvar, SyscallGetEpochScheduleSysvar, SyscallGetRentSysvar,
+    SyscallGetSysvar, SyscallInvokeSignedRust, SyscallLog, SyscallMemcmp, SyscallMemcpy,
+    SyscallMemmove, SyscallMemset, SyscallPanic, SyscallSetReturnData,
+};
+#[allow(deprecated)]
+use solana_sysvar::recent_blockhashes::{Entry as BlockhashesEntry, RecentBlockhashes};
+use solana_sysvar_id::SysvarId;
 
 pub const EXECUTION_SLOT: u64 = 5; // The execution slot must be greater than the deployment slot
 pub const EXECUTION_EPOCH: u64 = 2; // The execution epoch must be greater than the deployment epoch
@@ -161,8 +161,9 @@ impl MockBankCallback {
             .unwrap()
             .insert(Rent::id(), account_data);
 
-        // SystemInstruction::AdvanceNonceAccount asserts RecentBlockhashes is non-empty
-        // but then just gets the blockhash from InvokeContext. so the sysvar doesnt need real entries
+        // SystemInstruction::AdvanceNonceAccount asserts RecentBlockhashes is
+        // non-empty but then just gets the blockhash from InvokeContext. So,
+        // the sysvar doesn't need real entries
         #[allow(deprecated)]
         let recent_blockhashes = vec![BlockhashesEntry::default()];
 
@@ -187,7 +188,8 @@ impl MockBankCallback {
 }
 
 pub fn load_program(name: String) -> Vec<u8> {
-    let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Loading the program file
+    let mut dir = env::current_dir().unwrap();
     dir.push("tests");
     dir.push("example-programs");
     dir.push(name.as_str());
@@ -205,7 +207,8 @@ pub fn program_address(program_name: &str) -> Pubkey {
 }
 
 pub fn program_data_size(program_name: &str) -> usize {
-    load_program(program_name.to_string()).len()
+    UpgradeableLoaderState::size_of_programdata_metadata()
+        .saturating_add(load_program(program_name.to_string()).len())
 }
 
 pub fn deploy_program(name: String, deployment_slot: Slot, mock_bank: &MockBankCallback) -> Pubkey {
@@ -270,7 +273,6 @@ pub fn deploy_program_with_upgrade_authority(
 pub fn register_builtins(
     mock_bank: &MockBankCallback,
     batch_processor: &TransactionBatchProcessor<MockForkGraph>,
-    with_loader_v4: bool,
 ) {
     const DEPLOYMENT_SLOT: u64 = 0;
     // We must register LoaderV3 as a loadable account, otherwise programs won't execute.
@@ -282,7 +284,7 @@ pub fn register_builtins(
         ProgramCacheEntry::new_builtin(
             DEPLOYMENT_SLOT,
             loader_v3_name.len(),
-            solana_bpf_loader_program::Entrypoint::vm,
+            solana_bpf_loader_program::Entrypoint::register,
         ),
     );
 
@@ -295,7 +297,7 @@ pub fn register_builtins(
         ProgramCacheEntry::new_builtin(
             DEPLOYMENT_SLOT,
             loader_v1_name.len(),
-            solana_bpf_loader_program::Entrypoint::vm,
+            solana_bpf_loader_program::Entrypoint::register,
         ),
     );
 
@@ -307,23 +309,9 @@ pub fn register_builtins(
         ProgramCacheEntry::new_builtin(
             DEPLOYMENT_SLOT,
             loader_v2_name.len(),
-            solana_bpf_loader_program::Entrypoint::vm,
+            solana_bpf_loader_program::Entrypoint::register,
         ),
     );
-
-    if with_loader_v4 {
-        let loader_v4_name = "solana_loader_v4_program";
-        mock_bank.add_builtin(
-            batch_processor,
-            loader_v4::id(),
-            loader_v4_name,
-            ProgramCacheEntry::new_builtin(
-                DEPLOYMENT_SLOT,
-                loader_v4_name.len(),
-                solana_loader_v4_program::Entrypoint::vm,
-            ),
-        );
-    }
 
     // In order to perform a transference of native tokens using the system instruction,
     // the system program builtin must be registered.
@@ -335,7 +323,7 @@ pub fn register_builtins(
         ProgramCacheEntry::new_builtin(
             DEPLOYMENT_SLOT,
             system_program_name.len(),
-            solana_system_program::system_processor::Entrypoint::vm,
+            solana_system_program::system_processor::Entrypoint::register,
         ),
     );
 
@@ -348,12 +336,12 @@ pub fn register_builtins(
         ProgramCacheEntry::new_builtin(
             DEPLOYMENT_SLOT,
             compute_budget_program_name.len(),
-            solana_compute_budget_program::Entrypoint::vm,
+            solana_compute_budget_program::Entrypoint::register,
         ),
     );
 }
 
-pub fn create_custom_loader<'a>() -> BuiltinProgram<InvokeContext<'a, 'a>> {
+pub fn create_custom_loader() -> ProgramRuntimeEnvironment {
     let compute_budget = SVMTransactionExecutionBudget::default();
     let vm_config = Config {
         max_call_depth: compute_budget.max_call_depth,
@@ -363,60 +351,36 @@ pub fn create_custom_loader<'a>() -> BuiltinProgram<InvokeContext<'a, 'a>> {
         instruction_meter_checkpoint_distance: 10000,
         enable_instruction_meter: true,
         enable_register_tracing: true,
-        enable_symbol_and_section_labels: true,
+        enable_symbol_and_section_labels: false,
         reject_broken_elfs: true,
-        allow_memory_region_zero: true,
         noop_instruction_rate: 256,
         sanitize_user_provided_values: true,
         enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V3,
         optimize_rodata: false,
         aligned_memory_mapping: false,
+        allow_memory_region_zero: true,
     };
 
     // These functions are system calls the compile contract calls during execution, so they
     // need to be registered.
     let mut loader = BuiltinProgram::new_loader(vm_config);
-    loader
-        .register_function("abort", SyscallAbort::vm)
+    SyscallAbort::register(&mut loader, "abort").expect("Registration failed");
+    SyscallLog::register(&mut loader, "sol_log_").expect("Registration failed");
+    SyscallMemcpy::register(&mut loader, "sol_memcpy_").expect("Registration failed");
+    SyscallMemset::register(&mut loader, "sol_memset_").expect("Registration failed");
+    SyscallMemcmp::register(&mut loader, "sol_memcmp_").expect("Registration failed");
+    SyscallMemmove::register(&mut loader, "sol_memmove_").expect("Registration failed");
+    SyscallInvokeSignedRust::register(&mut loader, "sol_invoke_signed_rust")
         .expect("Registration failed");
-    loader
-        .register_function("sol_log_", SyscallLog::vm)
+    SyscallSetReturnData::register(&mut loader, "sol_set_return_data")
         .expect("Registration failed");
-    loader
-        .register_function("sol_memcpy_", SyscallMemcpy::vm)
+    SyscallGetClockSysvar::register(&mut loader, "sol_get_clock_sysvar")
         .expect("Registration failed");
-    loader
-        .register_function("sol_memset_", SyscallMemset::vm)
+    SyscallGetRentSysvar::register(&mut loader, "sol_get_rent_sysvar")
         .expect("Registration failed");
-    loader
-        .register_function("sol_memcmp_", SyscallMemcmp::vm)
+    SyscallGetEpochScheduleSysvar::register(&mut loader, "sol_get_epoch_schedule_sysvar")
         .expect("Registration failed");
-    loader
-        .register_function("sol_memmove_", SyscallMemmove::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_invoke_signed_rust", SyscallInvokeSignedRust::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_set_return_data", SyscallSetReturnData::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_get_clock_sysvar", SyscallGetClockSysvar::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_get_rent_sysvar", SyscallGetRentSysvar::vm)
-        .expect("Registration failed");
-    loader
-        .register_function(
-            "sol_get_epoch_schedule_sysvar",
-            SyscallGetEpochScheduleSysvar::vm,
-        )
-        .expect("Registration failed");
-    loader
-        .register_function("sol_panic_", SyscallPanic::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_get_sysvar", SyscallGetSysvar::vm)
-        .expect("Registration failed");
-    loader
+    SyscallPanic::register(&mut loader, "sol_panic_").expect("Registration failed");
+    SyscallGetSysvar::register(&mut loader, "sol_get_sysvar").expect("Registration failed");
+    ProgramRuntimeEnvironment::from(loader)
 }

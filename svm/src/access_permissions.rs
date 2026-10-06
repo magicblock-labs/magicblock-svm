@@ -189,20 +189,20 @@ fn instruction_discriminant(instruction: &SVMInstruction<'_>) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use {
-        super::*,
-        crate::{
-            account_loader::LoadedTransaction, rollback_accounts::RollbackAccounts,
-            transaction_execution_result::TransactionExecutionDetails,
-        },
-        solana_fee_structure::FeeDetails,
-        solana_hash::Hash,
-        solana_message::{
-            LegacyMessage, Message, MessageHeader, SanitizedMessage,
-            compiled_instruction::CompiledInstruction,
-        },
-        solana_program_runtime::execution_budget::SVMTransactionExecutionBudget,
-        std::collections::{HashMap, HashSet},
+    use std::collections::{HashMap, HashSet};
+
+    use solana_fee_structure::FeeDetails;
+    use solana_hash::Hash;
+    use solana_message::{
+        LegacyMessage, Message, MessageHeader, SanitizedMessage,
+        compiled_instruction::CompiledInstruction,
+    };
+    use solana_program_runtime::execution_budget::SVMTransactionExecutionBudget;
+
+    use super::*;
+    use crate::{
+        account_loader::LoadedTransaction, rollback_accounts::RollbackAccounts,
+        transaction_execution_result::TransactionExecutionDetails,
     };
 
     fn privileged_account() -> AccountSharedData {
@@ -234,7 +234,7 @@ mod tests {
         ExecutedTransaction {
             loaded_transaction: LoadedTransaction {
                 accounts,
-                program_indices: vec![],
+                touched_flags: Box::new([]),
                 fee_details: FeeDetails::default(),
                 rollback_accounts: RollbackAccounts::default(),
                 compute_budget: SVMTransactionExecutionBudget::default(),
@@ -246,7 +246,7 @@ mod tests {
                 inner_instructions: None,
                 return_data: None,
                 executed_units: 0,
-                accounts_data_len_delta: 0,
+                accounts_deltas: None,
             },
             programs_modified_by_tx: HashMap::new(),
         }

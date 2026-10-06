@@ -1,21 +1,19 @@
-#[cfg(feature = "dev-context-only-utils")]
-use qualifier_attr::qualifiers;
-use {
-    crate::{
-        IndexOfAccount, MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION, MAX_ACCOUNT_DATA_LEN,
-        vm_slice::VmSlice,
-    },
-    solana_account::{AccountSharedData, ReadableAccount, WritableAccount},
-    solana_instruction::error::InstructionError,
-    solana_pubkey::Pubkey,
-    std::{
-        cell::{Cell, UnsafeCell},
-        ops::{Deref, DerefMut},
-    },
+use std::{
+    cell::{Cell, UnsafeCell},
+    ops::{Deref, DerefMut},
 };
 
-const GUEST_REGION_SIZE: u64 = 1 << 32;
-const GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS: u64 = 9 * GUEST_REGION_SIZE;
+#[cfg(feature = "dev-context-only-utils")]
+use qualifier_attr::qualifiers;
+use solana_account::{AccountSharedData, ReadableAccount, WritableAccount};
+use solana_instruction::error::InstructionError;
+use solana_pubkey::Pubkey;
+
+use crate::{
+    IndexOfAccount, MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION, MAX_ACCOUNT_DATA_LEN,
+    vm_addresses::{GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS, GUEST_REGION_SIZE},
+    vm_slice::VmSlice,
+};
 
 /// This struct is shared with programs. Do not alter its fields.
 #[repr(C)]
@@ -620,10 +618,11 @@ impl DerefMut for AccountRefMut<'_> {
 
 #[cfg(test)]
 mod tests {
-    use {
-        crate::transaction_accounts::TransactionAccounts, solana_account::AccountSharedData,
-        solana_instruction::error::InstructionError, solana_pubkey::Pubkey,
-    };
+    use solana_account::AccountSharedData;
+    use solana_instruction::error::InstructionError;
+    use solana_pubkey::Pubkey;
+
+    use crate::transaction_accounts::TransactionAccounts;
 
     #[test]
     fn test_missing_account() {

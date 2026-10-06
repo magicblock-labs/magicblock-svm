@@ -1,0 +1,29 @@
+[package]
+name = "solana-loader-v4-program"
+description = "Solana Loader v4 management retained for MagicBlock program cloning"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[features]
+default = ["metrics"]
+agave-unstable-api = []
+metrics = ["solana-program-runtime/metrics"]
+
+[dependencies]
+solana-bincode = { workspace = true }
+solana-instruction = { workspace = true }
+solana-loader-v3-interface = { workspace = true }
+solana-loader-v4-interface = { workspace = true, features = ["serde"] }
+solana-packet = { workspace = true }
+solana-program-runtime = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-sbpf = { workspace = true, features = ["jit"] }
+solana-sdk-ids = { workspace = true }
+solana-svm-log-collector = { workspace = true }
+solana-svm-measure = { workspace = true }
+solana-svm-type-overrides = { workspace = true }
+solana-transaction-context = { workspace = true }
